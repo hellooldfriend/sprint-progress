@@ -134,7 +134,7 @@ const UI = (() => {
 
     wrap.innerHTML = `
       ${heroHTML(s, m, v)}
-      ${metricsHTML(m, v)}
+      ${metricsHTML(m, v, s.status === 'archived')}
       ${splitHTML(m, v)}
       ${chartHTML(s)}
       ${longRunnerBanner(s, m)}
@@ -149,11 +149,12 @@ const UI = (() => {
   function heroHTML(s, m, v) {
     const doneAll = v.total > 0 && v.pct >= 100;
     const unit = v.unit;
+    const archived = s.status === 'archived';
     return `
     <section class="hero">
       <div class="hero__top">
         <div>
-          <div class="hero__label">Закрытие спринта — ${mode() === 'points' ? 'по story points' : 'по задачам'}</div>
+          <div class="hero__label">${archived ? 'Спринт закрыт с результатом' : 'Закрытие спринта'} — ${mode() === 'points' ? 'по story points' : 'по задачам'}</div>
           <div class="hero__value">
             <span class="hero__pct">${v.pct}<span class="hero__unit">%</span></span>
             <span class="hero__unit">${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${unit}</span>
@@ -162,9 +163,12 @@ const UI = (() => {
         <div class="hero__side">
           <div class="hero__stat"><b>${Metrics.fmt(v.total)}</b><span>Объём, ${unit}</span></div>
           <div class="hero__stat"><b style="color:var(--green)">${Metrics.fmt(v.done)}</b><span>Сделано</span></div>
-          <div class="hero__stat"><b>${Metrics.fmt(v.remaining)}</b><span>Осталось</span></div>
-          ${v.dropped > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.dropped)}</b><span>Снято</span></div>` : ''}
-          <div class="hero__stat"><b>${m.daysLeft}</b><span>${Metrics.plural(m.daysLeft, 'день', 'дня', 'дней')} до конца</span></div>
+          ${archived
+            ? `<div class="hero__stat"><b style="color:${v.notDone ? 'var(--amber)' : 'var(--muted)'}">${Metrics.fmt(v.notDone)}</b><span>Не сделано</span></div>
+               ${v.carriedOut > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.carriedOut)}</b><span>Перенесено</span></div>` : ''}`
+            : `<div class="hero__stat"><b>${Metrics.fmt(v.remaining)}</b><span>Осталось</span></div>
+               ${v.dropped > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.dropped)}</b><span>Снято</span></div>` : ''}
+               <div class="hero__stat"><b>${m.daysLeft}</b><span>${Metrics.plural(m.daysLeft, 'день', 'дня', 'дней')} до конца</span></div>`}
         </div>
       </div>
       <div class="progress">
@@ -174,7 +178,7 @@ const UI = (() => {
       <div class="progress-legend">
         <span><i style="background:var(--accent)"></i>Выполнено ${v.pct}%</span>
         ${s.status === 'active' ? `<span><i style="background:var(--border-strong)"></i>Прошло времени ${m.timePct}%</span>` : ''}
-        <span>${statusHint(m, v)}</span>
+        <span>${archived ? closedHint(m, v) : statusHint(m, v)}</span>
       </div>
     </section>`;
   }
@@ -196,6 +200,16 @@ const UI = (() => {
       </div>`;
   }
 
+  /** Итог закрытого спринта: что не сделали и куда это уехало. */
+  function closedHint(m, v) {
+    if (m.isEmpty) return 'В спринте не было задач';
+    if (!v.notDone) return '🎉 Закрыли всё, что взяли';
+    const dest = m.carryDestinations
+      .map(d => `${Metrics.fmt(mode() === 'points' ? d.points : d.count)} ${v.unit} → «${esc(d.name)}»`)
+      .join(', ');
+    return `Не сделано ${Metrics.fmt(v.notDone)} ${v.unit}` + (dest ? `, из них перенесено ${dest}` : '');
+  }
+
   /** Дружелюбная подсказка «успеваем / отстаём». */
   function statusHint(m, v) {
     if (m.isEmpty) return 'Добавьте задачи — метрики появятся сразу';
@@ -209,7 +223,7 @@ const UI = (() => {
   }
 
   /* ── Карточки метрик ── */
-  function metricsHTML(m, v) {
+  function metricsHTML(m, v, archived) {
     const card = ({ dot, title, value, unit, foot, spark, sparkColor }) => `
       <article class="metric">
         <div class="metric__head"><span class="dot ${dot}"></span>${title}</div>
@@ -240,11 +254,19 @@ const UI = (() => {
         spark: v.pct, sparkColor: 'var(--green)',
         foot: `${v.pct}% спринта · velocity ${Metrics.fmt(m.velocity)} SP`,
       })}
-      ${card({
-        dot: 'dot--blue', title: 'Remaining work', value: Metrics.fmt(v.remaining), unit: v.unit,
-        spark: 100 - v.pct, sparkColor: 'var(--blue)',
-        foot: `В работе — от In Progress до Deploy: ${Metrics.fmt(v.inProgress)} ${v.unit}`,
-      })}
+      ${archived
+        ? card({
+            dot: 'dot--blue', title: 'Не сделано', value: Metrics.fmt(v.notDone), unit: v.unit,
+            spark: 100 - v.pct, sparkColor: 'var(--blue)',
+            foot: v.carriedOut > 0
+              ? `Из них перенесено дальше: ${Metrics.fmt(v.carriedOut)} ${v.unit}`
+              : 'Ничего не переносили в следующий спринт',
+          })
+        : card({
+            dot: 'dot--blue', title: 'Remaining work', value: Metrics.fmt(v.remaining), unit: v.unit,
+            spark: 100 - v.pct, sparkColor: 'var(--blue)',
+            foot: `В работе — от In Progress до Deploy: ${Metrics.fmt(v.inProgress)} ${v.unit}`,
+          })}
       ${v.carried > 0 ? card({
         dot: 'dot--muted', title: 'Перенос из прошлого', value: Metrics.fmt(v.carried), unit: v.unit,
         foot: m.longRunners > 0
@@ -252,16 +274,18 @@ const UI = (() => {
           : `${v.carriedShare}% объёма спринта — это долг, а не свежая работа`,
       }) : ''}
       ${card({
-        dot: 'dot--muted', title: 'Не закроем', value: Metrics.fmt(v.dropped), unit: v.unit,
+        dot: 'dot--muted', title: archived ? 'Сняли со спринта' : 'Не закроем', value: Metrics.fmt(v.dropped), unit: v.unit,
         foot: v.dropped > 0
           ? `${v.droppedShare}% объёма спринта · ${m.dropByReason.map(r => `${r.short} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(' · ')}`
-          : 'Скоуп пока не резали',
+          : archived ? 'Скоуп не резали' : 'Скоуп пока не резали',
       })}
       ${card({
-        dot: 'dot--muted', title: 'Темп', value: Metrics.fmt(v.pace), unit: `${v.unit}/день`,
-        foot: m.daysLeft > 0
-          ? `Чтобы успеть, нужно ${Metrics.fmt(v.need)} ${v.unit}/день`
-          : 'Время спринта вышло',
+        dot: 'dot--muted', title: archived ? 'Средний темп' : 'Темп', value: Metrics.fmt(v.pace), unit: `${v.unit}/день`,
+        foot: archived
+          ? `Столько закрывали в среднем за день спринта`
+          : m.daysLeft > 0
+            ? `Чтобы успеть, нужно ${Metrics.fmt(v.need)} ${v.unit}/день`
+            : 'Время спринта вышло',
       })}
     </section>`;
   }
@@ -413,7 +437,9 @@ const UI = (() => {
         ${t.points !== null ? `<span class="tag tag--points">${Metrics.fmt(t.points)} SP</span>` : ''}
         ${t.type ? `<span class="tag ${isBugType(t.type) ? 'tag--bug' : 'tag--type'}">${esc(t.type)}</span>` : ''}
         ${t.unplanned ? '<span class="tag tag--unplanned">Unplanned</span>' : ''}
-        ${t.dropped ? `<span class="tag tag--dropped">Снято · ${esc(Store.dropReasonById(t.dropReason).short)}</span>` : ''}
+        ${t.carriedTo
+          ? `<span class="tag tag--carry" title="Перенесена в «${esc(t.carriedTo.name)}»">→ ${esc(t.carriedTo.name)}</span>`
+          : t.dropped ? `<span class="tag tag--dropped">Снято · ${esc(Store.dropReasonById(t.dropReason).short)}</span>` : ''}
         ${carryTag(t)}
         ${t.assignee ? `<span class="tag tag--assignee">${esc(t.assignee)}</span>` : ''}
         <span class="tag" title="Добавлена ${new Date(t.createdAt).toLocaleString('ru-RU')}">${Store.formatDate(Store.toISODate(new Date(t.createdAt)))}</span>
@@ -524,7 +550,12 @@ const UI = (() => {
         <td class="t-num" style="color:${v.unplanned ? 'var(--amber)' : 'inherit'}">
           ${Metrics.fmt(v.unplanned)}<span class="t-sub"> ${v.unplanned ? `· ${v.unplannedShare}%` : ''}</span>
         </td>
-        <td class="t-num">${v.dropped ? `${Metrics.fmt(v.dropped)}<span class="t-sub"> · ${v.droppedShare}%</span>` : '<span class="t-sub">—</span>'}</td>
+        <td class="t-num">
+          ${v.dropped
+            ? `${Metrics.fmt(v.dropped)}<span class="t-sub"> · ${v.droppedShare}%</span>
+               <div class="t-sub">${m.dropByReason.map(r => `${r.short.toLowerCase()} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(', ')}</div>`
+            : '<span class="t-sub">—</span>'}
+        </td>
         <td class="t-num">${Metrics.fmt(m.velocity)}<span class="t-sub"> SP</span></td>
         <td style="text-align:right"><button class="btn btn--ghost btn--sm" data-open-sprint="${s.id}">Открыть</button></td>
       </tr>`;

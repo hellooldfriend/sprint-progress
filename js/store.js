@@ -12,7 +12,7 @@
        status: 'active'|'archived', createdAt, archivedAt,
        tasks: [{ id, key:string, title, type:string, points:number|null, status,
                  unplanned:boolean, dropped:boolean, dropReason:string, assignee:string,
-                 carriedFrom:{id,name}|null, carryCount:number,
+                 carriedFrom:{id,name}|null, carriedTo:{id,name}|null, carryCount:number,
                  createdAt:ISO, doneAt:ISO|null, droppedAt:ISO|null }]
      }]
    }
@@ -343,6 +343,9 @@ const Store = (() => {
             carriedFrom: t.carriedFrom && (t.carriedFrom.id || t.carriedFrom.name)
               ? { id: String(t.carriedFrom.id || ''), name: String(t.carriedFrom.name || 'прошлый спринт').slice(0, 120) }
               : null,
+            carriedTo: t.carriedTo && t.carriedTo.id
+              ? { id: String(t.carriedTo.id), name: String(t.carriedTo.name || 'следующий спринт').slice(0, 120) }
+              : null,
             carryCount: Math.max(0, Math.round(Number(t.carryCount) || 0)),
             assignee: String(t.assignee || '').slice(0, 60),
             createdAt: t.createdAt || new Date().toISOString(),
@@ -616,8 +619,9 @@ const Store = (() => {
       unplanned: !!unplanned,
       dropped: false,
       dropReason: 'carry',
-      // Откуда приехала задача и сколько спринтов уже едет (0 — свежая)
+      // Откуда приехала задача, куда уехала и сколько спринтов уже едет (0 — свежая)
       carriedFrom: null,
+      carriedTo: null,
       carryCount: 0,
       assignee: (assignee || '').trim(),
       createdAt: now,
@@ -700,6 +704,7 @@ const Store = (() => {
       patch.dropped = !!patch.dropped;
       // droppedAt — день урезания скоупа, по нему падает линия объёма на burn-up
       patch.droppedAt = patch.dropped ? (task.droppedAt || new Date().toISOString()) : null;
+      if (!patch.dropped) patch.carriedTo = null;   // вернули в спринт — переноса больше нет
       if (patch.dropped && (patch.status || task.status) === 'done') patch.status = task.status;
     }
     if (patch.dropReason !== undefined && !DROP_REASON_IDS.includes(patch.dropReason)) {
@@ -763,8 +768,12 @@ const Store = (() => {
       const src = from.tasks.find(t => t.id === taskId);
       if (!src || src.status === 'done') return;
 
-      // В закрываемом спринте задача честно уходит из remaining
-      applyTaskPatch(src, { dropped: true, dropReason: 'carry' });
+      // В закрываемом спринте задача честно уходит из remaining — и помнит, куда уехала
+      applyTaskPatch(src, {
+        dropped: true,
+        dropReason: 'carry',
+        carriedTo: { id: to.id, name: to.name },
+      });
 
       const task = makeTask({
         key: src.key,

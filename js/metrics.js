@@ -28,6 +28,8 @@ const Metrics = (() => {
     const dropped = tasks.filter(t => t.dropped);
     // Приехали из прошлых спринтов: это долг, а не свежевзятая работа
     const carried = tasks.filter(t => (t.carryCount || 0) > 0);
+    // Уехали дальше: для закрытого спринта это ответ на вопрос «куда делось несделанное»
+    const carriedOut = tasks.filter(t => t.carriedTo);
     // Долгожители: carryCount >= 2 значит задача идёт третий спринт подряд
     const longRunners = tasks.filter(t => (t.carryCount || 0) >= 2);
     const doneP = planned.filter(t => t.status === 'done');
@@ -56,6 +58,21 @@ const Metrics = (() => {
     const droppedTasks = dropped.length;
     const droppedPoints = sum(dropped, 'points');
 
+    // Не сделано = всё, что не в Done, включая снятое. Для закрытого спринта это главная цифра
+    const notDoneTasks = totalTasks - doneTasks;
+    const notDonePoints = totalPoints - donePoints;
+
+    // Куда уехало несделанное: [{ name, count, points }]
+    const carryDestinations = Object.values(
+      carriedOut.reduce((acc, t) => {
+        const key = t.carriedTo.id || t.carriedTo.name;
+        acc[key] = acc[key] || { name: t.carriedTo.name, count: 0, points: 0 };
+        acc[key].count++;
+        acc[key].points += Number(t.points) || 0;
+        return acc;
+      }, {})
+    );
+
     // Реально осталось работы = всё минус закрытое минус снятое
     const remainingTasks = totalTasks - doneTasks - droppedTasks;
     const remainingPoints = totalPoints - donePoints - droppedPoints;
@@ -81,6 +98,9 @@ const Metrics = (() => {
       unplannedTasks: unplanned.length, unplannedPoints: sum(unplanned, 'points'),
       doneTasks, donePoints,
       droppedTasks, droppedPoints, dropByReason,
+      notDoneTasks, notDonePoints,
+      carriedOutTasks: carriedOut.length, carriedOutPoints: sum(carriedOut, 'points'),
+      carryDestinations,
       carriedTasks: carried.length, carriedPoints: sum(carried, 'points'),
       carriedShareTasks: pct(carried.length, totalTasks),
       carriedSharePoints: pct(sum(carried, 'points'), totalPoints),
@@ -115,6 +135,8 @@ const Metrics = (() => {
       done: p ? m.donePoints : m.doneTasks,
       dropped: p ? m.droppedPoints : m.droppedTasks,
       droppedShare: p ? m.droppedSharePoints : m.droppedShareTasks,
+      notDone: p ? m.notDonePoints : m.notDoneTasks,
+      carriedOut: p ? m.carriedOutPoints : m.carriedOutTasks,
       carried: p ? m.carriedPoints : m.carriedTasks,
       carriedShare: p ? m.carriedSharePoints : m.carriedShareTasks,
       donePlanned: p ? m.donePlannedPoints : m.donePlannedTasks,
