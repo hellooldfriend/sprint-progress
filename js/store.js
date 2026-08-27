@@ -25,14 +25,15 @@ const Store = (() => {
 
   /** Колонки канбана. Порядок задаёт и порядок перемещения стрелками. */
   const STATUSES = [
-    { id: 'backlog',       label: 'Backlog',       color: 'var(--faint)',  dot: 'dot--muted'  },
-    { id: 'todo',          label: 'To Do',         color: 'var(--muted)',  dot: 'dot--muted'  },
-    { id: 'progress',      label: 'In Progress',   color: 'var(--blue)',   dot: 'dot--blue'   },
-    { id: 'review',        label: 'Review',        color: 'var(--accent)', dot: 'dot--accent' },
-    { id: 'ready_to_test', label: 'Ready to Test', color: 'var(--indigo)', dot: 'dot--indigo' },
-    { id: 'testing',       label: 'Testing',       color: 'var(--cyan)',   dot: 'dot--cyan'   },
-    { id: 'deploy',        label: 'Deploy',        color: 'var(--teal)',   dot: 'dot--teal'   },
-    { id: 'done',          label: 'Done',          color: 'var(--green)',  dot: 'dot--green'  },
+    // icon — для текстовой сводки, которую уносят в чат
+    { id: 'backlog',       label: 'Backlog',       color: 'var(--faint)',  dot: 'dot--muted',   icon: '🗂' },
+    { id: 'todo',          label: 'To Do',         color: 'var(--muted)',  dot: 'dot--muted',   icon: '📋' },
+    { id: 'progress',      label: 'In Progress',   color: 'var(--blue)',   dot: 'dot--blue',    icon: '🔨' },
+    { id: 'review',        label: 'Review',        color: 'var(--accent)', dot: 'dot--accent',  icon: '👀' },
+    { id: 'ready_to_test', label: 'Ready to Test', color: 'var(--indigo)', dot: 'dot--indigo',  icon: '📦' },
+    { id: 'testing',       label: 'Testing',       color: 'var(--cyan)',   dot: 'dot--cyan',    icon: '🧪' },
+    { id: 'deploy',        label: 'Deploy',        color: 'var(--teal)',   dot: 'dot--teal',    icon: '🚀' },
+    { id: 'done',          label: 'Done',          color: 'var(--green)',  dot: 'dot--green',   icon: '✅' },
   ];
 
   /** Задача «в работе»: начата, но ещё не закрыта. Нужна метрикам и подсказкам. */
