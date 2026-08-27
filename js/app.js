@@ -74,6 +74,10 @@
     $('#bulkStatusSelect').innerHTML = options;
     $('#taskStatusSelect').value = 'todo';
     $('#bulkStatusSelect').value = 'todo';
+    $('#taskTypes').innerHTML = Object.keys(Store.TYPE_ALIASES)
+      .map(t => `<option value="${t}"></option>`).join('');
+    $('#dropReasonSelect').innerHTML = Store.DROP_REASONS
+      .map(r => `<option value="${r.id}">${r.label}</option>`).join('');
   }
 
   function openSprintModal(sprint) {
@@ -163,19 +167,39 @@
     $('#btnDeleteTask').hidden = !task;
 
     if (task) {
+      form.key.value = task.key || '';
       form.title.value = task.title;
+      form.type.value = task.type || '';
       form.points.value = task.points === null ? '' : task.points;
       form.status.value = task.status;
       form.assignee.value = task.assignee || '';
       form.unplanned.checked = !!task.unplanned;
+      form.dropped.checked = !!task.dropped;
+      form.dropReason.value = task.dropReason || 'carry';
     } else {
       form.status.value = 'todo';
       // Спринт уже идёт → по умолчанию считаем задачу внеплановой
       const s = Store.activeSprint();
       form.unplanned.checked = !!s && Store.today() > s.startDate;
     }
+    syncDropReason();
     openModal('taskModal');
   }
+
+  /** Причина нужна только если задачу действительно снимают со спринта. */
+  function syncDropReason() {
+    const form = $('#taskForm');
+    $('#dropReasonField').hidden = !form.dropped.checked;
+    // Закрытая задача не может быть снятой — блокируем переключатель, чтобы не спорил с метриками
+    const isDone = form.status.value === 'done';
+    form.dropped.disabled = isDone;
+    if (isDone) form.dropped.checked = false;
+    $('.switch--drop').classList.toggle('is-disabled', isDone);
+  }
+
+  $('#taskForm').addEventListener('change', e => {
+    if (e.target.name === 'dropped' || e.target.name === 'status') syncDropReason();
+  });
 
   $('#taskForm').addEventListener('submit', e => {
     e.preventDefault();
@@ -183,11 +207,15 @@
     if (!s) return;
     const form = e.target;
     const data = {
+      key: form.key.value.trim().toUpperCase(),
       title: form.title.value.trim(),
+      type: form.type.value.trim(),
       points: form.points.value === '' ? null : Number(form.points.value),
       status: form.status.value,
       assignee: form.assignee.value.trim(),
       unplanned: form.unplanned.checked,
+      dropped: form.dropped.checked,
+      dropReason: form.dropReason.value,
     };
     if (!data.title) return;
 
@@ -220,20 +248,72 @@
   });
 
   /* ── Массовый ввод ── */
+
+  /** Живой предпросмотр разбора: видно, что именно приедет в спринт. */
+  function renderBulkPreview() {
+    const form = $('#bulkForm');
+    const box = $('#bulkPreview');
+    const sprint = Store.activeSprint();
+    const items = Store.parseBulkText(form.text.value, {
+      status: form.status.value,
+      unplanned: form.unplanned.value === '1',
+    });
+
+    if (!items.length) {
+      box.innerHTML = `<div class="bulk-preview__empty">Вставьте строки — здесь появится разбор: номер, название, тип, статус и оценка</div>`;
+      $('#bulkSubmit').disabled = true;
+      return;
+    }
+
+    const existingKeys = new Set((sprint ? sprint.tasks : []).map(t => t.key).filter(Boolean));
+    let willUpdate = 0;
+
+    const rows = items.map(item => {
+      const isUpdate = item.key && existingKeys.has(item.key);
+      if (isUpdate) willUpdate++;
+      const st = Store.STATUSES.find(x => x.id === item.status);
+      return `
+        <div class="bulk-row">
+          ${item.key ? `<span class="bulk-row__key">${UI.esc(item.key)}</span>` : '<span class="bulk-row__key is-empty">—</span>'}
+          <span class="bulk-row__title">${UI.esc(item.title)}</span>
+          ${item.type ? `<span class="tag">${UI.esc(item.type)}</span>` : ''}
+          <span class="tag"><i class="dot ${st.dot}"></i>${st.label}</span>
+          ${item.points !== null ? `<span class="tag tag--points">${Metrics.fmt(item.points)} SP</span>` : ''}
+          ${item.unplanned ? '<span class="tag tag--unplanned">Unplanned</span>' : ''}
+          ${isUpdate ? '<span class="tag tag--update">обновит</span>' : ''}
+        </div>`;
+    }).join('');
+
+    const summary = `Распознано ${items.length} ${Metrics.plural(items.length, 'задача', 'задачи', 'задач')}` +
+      (willUpdate ? ` · ${willUpdate} обновит существующие` : '');
+
+    box.innerHTML = `<div class="bulk-preview__list">${rows}</div><div class="bulk-preview__sum">${summary}</div>`;
+    $('#bulkSubmit').disabled = false;
+  }
+
+  $('#bulkForm').addEventListener('input', renderBulkPreview);
+  $('#bulkForm').addEventListener('change', renderBulkPreview);
+
   $('#bulkForm').addEventListener('submit', e => {
     e.preventDefault();
     const s = Store.activeSprint();
     if (!s) return;
     const form = e.target;
-    const count = Store.addTasksBulk(s.id, form.text.value, {
+    const res = Store.addTasksBulk(s.id, form.text.value, {
       status: form.status.value,
       unplanned: form.unplanned.value === '1',
     });
+
+    if (!res.total) { UI.toast('Нечего добавлять', 'err'); return; }
+
     closeModal('bulkModal');
     form.reset();
     UI.render();
-    UI.toast(count ? `Добавлено ${count} ${Metrics.plural(count, 'задача', 'задачи', 'задач')}` : 'Нечего добавлять',
-             count ? 'ok' : 'err');
+
+    const parts = [];
+    if (res.added) parts.push(`добавлено ${res.added}`);
+    if (res.updated) parts.push(`обновлено ${res.updated}`);
+    UI.toast(parts.join(', ').replace(/^./, c => c.toUpperCase()), 'ok');
   });
 
   /* ═════════════ Клики по интерфейсу ═════════════ */
@@ -270,6 +350,7 @@
   });
   $('#btnBulkAdd').addEventListener('click', () => {
     if (!Store.activeSprint()) return UI.toast('Сначала создайте спринт', 'err');
+    renderBulkPreview();
     openModal('bulkModal');
   });
 
@@ -392,6 +473,14 @@
     if (act === 'prev' || act === 'next') {
       Store.shiftTaskStatus(s.id, taskId, act === 'next' ? 1 : -1);
       UI.render();
+    } else if (act === 'drop') {
+      const task = Store.toggleTaskDropped(s.id, taskId);
+      UI.render();
+      if (task) {
+        UI.toast(task.dropped
+          ? `Снято со спринта: ${Store.dropReasonById(task.dropReason).short.toLowerCase()}`
+          : 'Задача вернулась в спринт', task.dropped ? 'info' : 'ok');
+      }
     } else if (act === 'edit') {
       const task = s.tasks.find(t => t.id === taskId);
       if (task) openTaskModal(task);

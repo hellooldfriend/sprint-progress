@@ -18,6 +18,8 @@ const UI = (() => {
     .replace(/"/g, '&quot;');
 
   const mode = () => Store.get().settings.metricMode;
+  /** Баги подсвечиваем отдельно — их видно на доске с первого взгляда. */
+  const isBugType = type => Store.matchType(type) === 'Баг';
   const unitLabel = () => (mode() === 'points' ? 'SP' : 'задач');
 
   /* ═════════════ Иконки ═════════════ */
@@ -25,6 +27,7 @@ const UI = (() => {
     left:  '<svg class="ico" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     right: '<svg class="ico" viewBox="0 0 24 24"><path d="M10 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     edit:  '<svg class="ico" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/></svg>',
+    drop:  '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7" fill="none"/><path d="M6.5 6.5l11 11" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
     trash: '<svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     search:'<svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   };
@@ -146,6 +149,7 @@ const UI = (() => {
           <div class="hero__stat"><b>${Metrics.fmt(v.total)}</b><span>Объём, ${unit}</span></div>
           <div class="hero__stat"><b style="color:var(--green)">${Metrics.fmt(v.done)}</b><span>Сделано</span></div>
           <div class="hero__stat"><b>${Metrics.fmt(v.remaining)}</b><span>Осталось</span></div>
+          ${v.dropped > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.dropped)}</b><span>Снято</span></div>` : ''}
           <div class="hero__stat"><b>${m.daysLeft}</b><span>${Metrics.plural(m.daysLeft, 'день', 'дня', 'дней')} до конца</span></div>
         </div>
       </div>
@@ -165,6 +169,7 @@ const UI = (() => {
   function statusHint(m, v) {
     if (m.isEmpty) return 'Добавьте задачи — метрики появятся сразу';
     if (v.pct >= 100) return '🎉 Все задачи закрыты';
+    if (v.dropped > 0 && v.remaining === 0) return `Всё, что не сняли, закрыто · снято ${Metrics.fmt(v.dropped)} ${v.unit}`;
     const delta = v.pct - m.timePct;
     if (m.daysLeft === 0) return 'Спринт завершён по времени';
     if (delta >= 5) return `Идём с опережением на ${Math.round(delta)} п.п.`;
@@ -207,7 +212,13 @@ const UI = (() => {
       ${card({
         dot: 'dot--blue', title: 'Remaining work', value: Metrics.fmt(v.remaining), unit: v.unit,
         spark: 100 - v.pct, sparkColor: 'var(--blue)',
-        foot: `В работе и на ревью: ${Metrics.fmt(v.inProgress)} ${v.unit}`,
+        foot: `В работе — от In Progress до Deploy: ${Metrics.fmt(v.inProgress)} ${v.unit}`,
+      })}
+      ${card({
+        dot: 'dot--muted', title: 'Не закроем', value: Metrics.fmt(v.dropped), unit: v.unit,
+        foot: v.dropped > 0
+          ? `${v.droppedShare}% объёма спринта · ${m.dropByReason.map(r => `${r.short} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(' · ')}`
+          : 'Скоуп пока не резали',
       })}
       ${card({
         dot: 'dot--muted', title: 'Темп', value: Metrics.fmt(v.pace), unit: `${v.unit}/день`,
@@ -252,7 +263,7 @@ const UI = (() => {
       ? `<span><i style="background:var(--accent)"></i>Остаток работы</span>
          <span><i class="dashed"></i>Идеальное сгорание</span>`
       : `<span><i style="background:var(--green)"></i>Сделано (накопленно)</span>
-         <span><i style="background:var(--amber)"></i>Общий объём (растёт от unplanned)</span>`;
+         <span><i style="background:var(--amber)"></i>Общий объём — растёт от unplanned, падает от снятых</span>`;
 
     return `
     <section class="card chart-card">
@@ -261,7 +272,7 @@ const UI = (() => {
           <div class="card__title">${isDown ? 'Burn-down' : 'Burn-up'}</div>
           <div class="card__sub">${isDown
             ? 'Сколько работы осталось по дням против идеальной линии'
-            : 'Сделанное против объёма спринта — виден scope creep'} · в ${unitLabel()}</div>
+            : 'Сделанное против объёма спринта — видно, где скоуп рос и где его резали'} · в ${unitLabel()}</div>
         </div>
         <div class="segmented" id="chartMode">
           <button data-chart="burndown" class="${isDown ? 'is-active' : ''}">Burn-down</button>
@@ -304,7 +315,8 @@ const UI = (() => {
       if (view.kind === 'planned' && t.unplanned) return false;
       if (view.kind === 'unplanned' && !t.unplanned) return false;
       if (!q) return true;
-      return t.title.toLowerCase().includes(q) || (t.assignee || '').toLowerCase().includes(q);
+      return [t.title, t.key, t.type, t.assignee]
+        .some(field => (field || '').toLowerCase().includes(q));
     });
   }
 
@@ -344,6 +356,9 @@ const UI = (() => {
       todo: 'Готово к работе',
       progress: 'Никто ничего не начал',
       review: 'Нечего ревьюить',
+      ready_to_test: 'Очереди на тест нет',
+      testing: 'QA отдыхает',
+      deploy: 'Нечего катить',
       done: 'Пока ничего не закрыто',
     };
     return texts[statusId] || 'Пусто';
@@ -353,18 +368,24 @@ const UI = (() => {
     const idx = Store.STATUS_IDS.indexOf(t.status);
     const isFirst = idx === 0, isLast = idx === Store.STATUS_IDS.length - 1;
     return `
-    <article class="task ${t.unplanned ? 'is-unplanned' : ''} ${t.status === 'done' ? 'is-done' : ''}"
+    <article class="task ${t.unplanned ? 'is-unplanned' : ''} ${t.status === 'done' ? 'is-done' : ''} ${t.dropped ? 'is-dropped' : ''}"
              data-task="${t.id}" ${readonly ? '' : 'draggable="true"'}>
+      ${t.key ? `<div class="task__key">${esc(t.key)}</div>` : ''}
       <div class="task__title">${esc(t.title)}</div>
       <div class="task__meta">
         ${t.points !== null ? `<span class="tag tag--points">${Metrics.fmt(t.points)} SP</span>` : ''}
+        ${t.type ? `<span class="tag ${isBugType(t.type) ? 'tag--bug' : 'tag--type'}">${esc(t.type)}</span>` : ''}
         ${t.unplanned ? '<span class="tag tag--unplanned">Unplanned</span>' : ''}
+        ${t.dropped ? `<span class="tag tag--dropped">Снято · ${esc(Store.dropReasonById(t.dropReason).short)}</span>` : ''}
         ${t.assignee ? `<span class="tag tag--assignee">${esc(t.assignee)}</span>` : ''}
         <span class="tag" title="Добавлена ${new Date(t.createdAt).toLocaleString('ru-RU')}">${Store.formatDate(Store.toISODate(new Date(t.createdAt)))}</span>
         <span class="spacer"></span>
         <div class="task__actions">
           <button class="task__btn" data-act="prev" ${isFirst ? 'disabled' : ''} title="Назад по статусу">${ICONS.left}</button>
           <button class="task__btn" data-act="next" ${isLast ? 'disabled' : ''} title="Вперёд по статусу">${ICONS.right}</button>
+          <button class="task__btn ${t.dropped ? 'is-on' : ''}" data-act="drop"
+                  title="${t.dropped ? 'Вернуть в спринт' : 'Не закроем в этом спринте'}"
+                  ${t.status === 'done' ? 'disabled' : ''}>${ICONS.drop}</button>
           <button class="task__btn" data-act="edit" title="Редактировать">${ICONS.edit}</button>
           <button class="task__btn task__btn--del" data-act="delete" title="Удалить">${ICONS.trash}</button>
         </div>
@@ -395,6 +416,7 @@ const UI = (() => {
     const avgVelocity = avg(base, r => r.m.velocity);
     const avgPct = avg(base, r => (mode() === 'points' ? r.m.pctPoints : r.m.pctTasks));
     const avgUnplanned = avg(base, r => (mode() === 'points' ? r.m.unplannedSharePoints : r.m.unplannedShareTasks));
+    const avgDropped = avg(base, r => (mode() === 'points' ? r.m.droppedPoints : r.m.droppedTasks));
 
     body.innerHTML = `
       <section class="metrics">
@@ -418,6 +440,11 @@ const UI = (() => {
           <div class="metric__value"><b>${Math.round(avgUnplanned)}</b><span>%</span></div>
           <div class="metric__foot">Сколько объёма съедает внеплановая работа</div>
         </article>
+        <article class="metric">
+          <div class="metric__head"><span class="dot dot--muted"></span>Снимаем со спринта</div>
+          <div class="metric__value"><b>${Metrics.fmt(avgDropped)}</b><span>${mode() === 'points' ? 'SP' : 'задач'} за спринт</span></div>
+          <div class="metric__foot">Систематический перенос — признак перегруженного планирования</div>
+        </article>
       </section>
 
       <div class="section-title">Все спринты</div>
@@ -426,7 +453,7 @@ const UI = (() => {
           <thead>
             <tr>
               <th>Спринт</th><th>Даты</th><th>Выполнение</th>
-              <th>Planned</th><th>Unplanned</th><th>Velocity</th><th></th>
+              <th>Planned</th><th>Unplanned</th><th>Снято</th><th>Velocity</th><th></th>
             </tr>
           </thead>
           <tbody>${rows.map(({ s, m }) => historyRow(s, m)).join('')}</tbody>
@@ -456,6 +483,7 @@ const UI = (() => {
         <td class="t-num" style="color:${v.unplanned ? 'var(--amber)' : 'inherit'}">
           ${Metrics.fmt(v.unplanned)}<span class="t-sub"> ${v.unplanned ? `· ${v.unplannedShare}%` : ''}</span>
         </td>
+        <td class="t-num">${v.dropped ? `${Metrics.fmt(v.dropped)}<span class="t-sub"> · ${v.droppedShare}%</span>` : '<span class="t-sub">—</span>'}</td>
         <td class="t-num">${Metrics.fmt(m.velocity)}<span class="t-sub"> SP</span></td>
         <td style="text-align:right"><button class="btn btn--ghost btn--sm" data-open-sprint="${s.id}">Открыть</button></td>
       </tr>`;

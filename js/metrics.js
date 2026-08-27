@@ -24,9 +24,12 @@ const Metrics = (() => {
     const planned = tasks.filter(t => !t.unplanned);
     const unplanned = tasks.filter(t => t.unplanned);
     const done = tasks.filter(t => t.status === 'done');
+    // Снятые со спринта: в объём обязательства входят, в remaining и в темп — нет
+    const dropped = tasks.filter(t => t.dropped);
     const doneP = planned.filter(t => t.status === 'done');
     const doneU = unplanned.filter(t => t.status === 'done');
-    const inProgress = tasks.filter(t => t.status === 'progress' || t.status === 'review');
+    // «В работе» — всё, что начали, но ещё не закрыли: от In Progress до Deploy
+    const inProgress = tasks.filter(t => Store.IN_FLIGHT_IDS.includes(t.status) && !t.dropped);
 
     const byStatus = {};
     Store.STATUS_IDS.forEach(id => {
@@ -46,8 +49,21 @@ const Metrics = (() => {
     const daysLeft = Math.max(0, totalDays - elapsedDays);
     const timePct = pct(elapsedDays, totalDays);
 
-    const remainingTasks = totalTasks - doneTasks;
-    const remainingPoints = totalPoints - donePoints;
+    const droppedTasks = dropped.length;
+    const droppedPoints = sum(dropped, 'points');
+
+    // Реально осталось работы = всё минус закрытое минус снятое
+    const remainingTasks = totalTasks - doneTasks - droppedTasks;
+    const remainingPoints = totalPoints - donePoints - droppedPoints;
+
+    // Разбивка снятого по причинам — для подписи на карточке и разговора на ретро
+    const dropByReason = Store.DROP_REASONS
+      .map(r => ({
+        ...r,
+        count: dropped.filter(t => t.dropReason === r.id).length,
+        points: sum(dropped.filter(t => t.dropReason === r.id), 'points'),
+      }))
+      .filter(r => r.count > 0);
 
     // Темп: закрыто в день (по прошедшим дням) и сколько нужно закрывать, чтобы успеть
     const paceTasks = elapsedDays > 0 ? doneTasks / elapsedDays : 0;
@@ -60,6 +76,9 @@ const Metrics = (() => {
       plannedTasks: planned.length,   plannedPoints: sum(planned, 'points'),
       unplannedTasks: unplanned.length, unplannedPoints: sum(unplanned, 'points'),
       doneTasks, donePoints,
+      droppedTasks, droppedPoints, dropByReason,
+      droppedShareTasks: pct(droppedTasks, totalTasks),
+      droppedSharePoints: pct(droppedPoints, totalPoints),
       donePlannedTasks: doneP.length, donePlannedPoints: sum(doneP, 'points'),
       doneUnplannedTasks: doneU.length, doneUnplannedPoints: sum(doneU, 'points'),
       inProgressTasks: inProgress.length, inProgressPoints: sum(inProgress, 'points'),
@@ -85,6 +104,8 @@ const Metrics = (() => {
       planned: p ? m.plannedPoints : m.plannedTasks,
       unplanned: p ? m.unplannedPoints : m.unplannedTasks,
       done: p ? m.donePoints : m.doneTasks,
+      dropped: p ? m.droppedPoints : m.droppedTasks,
+      droppedShare: p ? m.droppedSharePoints : m.droppedShareTasks,
       donePlanned: p ? m.donePlannedPoints : m.donePlannedTasks,
       doneUnplanned: p ? m.doneUnplannedPoints : m.doneUnplannedTasks,
       inProgress: p ? m.inProgressPoints : m.inProgressTasks,
@@ -117,12 +138,15 @@ const Metrics = (() => {
       const d = dayOf(t.createdAt);
       return d < sprint.startDate ? sprint.startDate : d;
     };
+    // Задача в объёме дня, если уже заведена и ещё не снята со спринта
+    const inScope = (t, day) =>
+      bornDay(t) <= day && !(t.dropped && t.droppedAt && dayOf(t.droppedAt) <= day);
 
     const scope = [], completed = [], remaining = [], ideal = [];
 
     days.forEach((day, i) => {
       const isFuture = day > todayISO;
-      const scopeVal = tasks.reduce((acc, t) => acc + (bornDay(t) <= day ? weight(t, mode) : 0), 0);
+      const scopeVal = tasks.reduce((acc, t) => acc + (inScope(t, day) ? weight(t, mode) : 0), 0);
       const doneVal = tasks.reduce(
         (acc, t) => acc + (t.doneAt && dayOf(t.doneAt) <= day ? weight(t, mode) : 0), 0);
 

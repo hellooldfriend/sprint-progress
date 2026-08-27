@@ -128,7 +128,7 @@
           </svg>
         </div>
         <h2>Здесь пока пусто</h2>
-        <p>Создайте первый спринт — на планировании добавьте задачи, а всё, что прилетит по ходу, отмечайте флагом «Unplanned». Метрики соберутся сами.</p>
+        <p>Создайте первый спринт, залейте задачи массовым вводом из трекера — а всё, что прилетит по ходу, отмечайте флагом «Unplanned». Метрики и графики соберутся сами.</p>
         <button class="btn btn--primary" id="btnNewSprintEmpty">Создать спринт</button>
       </div>
     </section>
@@ -195,6 +195,17 @@
       </label>
       <div class="grid-2">
         <label class="field">
+          <span class="field__label">Номер задачи <em>— опционально</em></span>
+          <input class="input" name="key" placeholder="DEV-123" maxlength="24" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field__label">Тип <em>— опционально</em></span>
+          <input class="input" name="type" list="taskTypes" placeholder="Задача" maxlength="32" autocomplete="off" />
+          <datalist id="taskTypes"></datalist>
+        </label>
+      </div>
+      <div class="grid-2">
+        <label class="field">
           <span class="field__label">Story points <em>— опционально</em></span>
           <input class="input" type="number" name="points" min="0" max="999" step="0.5" placeholder="—" />
         </label>
@@ -215,6 +226,19 @@
           <em>Задача пришла во время спринта, а не на планировании</em>
         </span>
       </label>
+
+      <label class="switch switch--drop">
+        <input type="checkbox" name="dropped" id="taskDropped" />
+        <span class="switch__track"><span class="switch__thumb"></span></span>
+        <span class="switch__text">
+          <strong>Не закроем в этом спринте</strong>
+          <em>Уйдёт из remaining work и из требуемого темпа, объём на burn-up упадёт</em>
+        </span>
+      </label>
+      <label class="field field--indent" id="dropReasonField" hidden>
+        <span class="field__label">Причина</span>
+        <select class="input" name="dropReason" id="dropReasonSelect"></select>
+      </label>
       <footer class="modal__foot">
         <button type="button" class="btn btn--danger-ghost" id="btnDeleteTask" hidden>Удалить</button>
         <span class="spacer"></span>
@@ -225,7 +249,7 @@
   </div>
 </div>
 
-<div class="modal" id="bulkModal" hidden>
+<div class="modal modal--wide" id="bulkModal" hidden>
   <div class="modal__backdrop" data-close></div>
   <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="bulkModalTitle">
     <header class="modal__head">
@@ -237,18 +261,28 @@
     <form class="modal__body form" id="bulkForm">
       <label class="field">
         <span class="field__label">Одна задача — одна строка</span>
-        <textarea class="input input--area" name="text" rows="9" spellcheck="false"
-placeholder="Свёрстать страницу тарифов | 5
-API: эндпоинт /v2/reports | 8
-!Хотфикс: падение экспорта | 2
-Обновить документацию"></textarea>
+        <textarea class="input input--area" name="text" rows="8" spellcheck="false"
+placeholder="DEV-123 &quot;Поменять название&quot; Задача Готово 3
+DEV-124 &quot;Удалить логи&quot; Задача &quot;В процессе&quot; 5
+DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></textarea>
       </label>
+
       <p class="hint">
-        <code>| 5</code> — story points, <code>!</code> в начале строки — пометить задачу как <span class="txt-amber">Unplanned</span>. Пустые строки игнорируются.
+        Порядок полей: <code>номер</code> <code>"название"</code> <code>тип</code> <code>статус</code> <code>story points</code>.
+        Всё, кроме названия, можно пропустить — недостающее возьмётся из полей ниже.
+        Название и статус из двух слов берите в кавычки: <code>"В процессе"</code>.
+        <code>!</code> в начале строки помечает задачу как <span class="txt-amber">Unplanned</span>.
+        Строка с уже существующим номером обновит задачу, а не создаст дубль.
       </p>
+
+      <div class="field">
+        <span class="field__label">Предпросмотр</span>
+        <div class="bulk-preview" id="bulkPreview"></div>
+      </div>
+
       <div class="grid-2">
         <label class="field">
-          <span class="field__label">Статус для всех</span>
+          <span class="field__label">Статус, если не указан в строке</span>
           <select class="input" name="status" id="bulkStatusSelect"></select>
         </label>
         <label class="field">
@@ -259,9 +293,10 @@ API: эндпоинт /v2/reports | 8
           </select>
         </label>
       </div>
+
       <footer class="modal__foot">
         <button type="button" class="btn btn--ghost" data-close>Отмена</button>
-        <button type="submit" class="btn btn--primary">Добавить</button>
+        <button type="submit" class="btn btn--primary" id="bulkSubmit">Добавить</button>
       </footer>
     </form>
   </div>

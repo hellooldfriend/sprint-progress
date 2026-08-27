@@ -10,8 +10,9 @@
      sprints: [{
        id, name, goal, startDate:'YYYY-MM-DD', endDate:'YYYY-MM-DD',
        status: 'active'|'archived', createdAt, archivedAt,
-       tasks: [{ id, title, points:number|null, status, unplanned:boolean,
-                 assignee:string, createdAt:ISO, doneAt:ISO|null }]
+       tasks: [{ id, key:string, title, type:string, points:number|null, status,
+                 unplanned:boolean, dropped:boolean, dropReason:string, assignee:string,
+                 createdAt:ISO, doneAt:ISO|null, droppedAt:ISO|null }]
      }]
    }
    ============================================================ */
@@ -23,13 +24,216 @@ const Store = (() => {
 
   /** Колонки канбана. Порядок задаёт и порядок перемещения стрелками. */
   const STATUSES = [
-    { id: 'backlog',  label: 'Backlog',     color: 'var(--faint)',  dot: 'dot--muted'  },
-    { id: 'todo',     label: 'To Do',       color: 'var(--muted)',  dot: 'dot--muted'  },
-    { id: 'progress', label: 'In Progress', color: 'var(--blue)',   dot: 'dot--blue'   },
-    { id: 'review',   label: 'Review',      color: 'var(--accent)', dot: 'dot--accent' },
-    { id: 'done',     label: 'Done',        color: 'var(--green)',  dot: 'dot--green'  },
+    { id: 'backlog',       label: 'Backlog',       color: 'var(--faint)',  dot: 'dot--muted'  },
+    { id: 'todo',          label: 'To Do',         color: 'var(--muted)',  dot: 'dot--muted'  },
+    { id: 'progress',      label: 'In Progress',   color: 'var(--blue)',   dot: 'dot--blue'   },
+    { id: 'review',        label: 'Review',        color: 'var(--accent)', dot: 'dot--accent' },
+    { id: 'ready_to_test', label: 'Ready to Test', color: 'var(--indigo)', dot: 'dot--indigo' },
+    { id: 'testing',       label: 'Testing',       color: 'var(--cyan)',   dot: 'dot--cyan'   },
+    { id: 'deploy',        label: 'Deploy',        color: 'var(--teal)',   dot: 'dot--teal'   },
+    { id: 'done',          label: 'Done',          color: 'var(--green)',  dot: 'dot--green'  },
   ];
+
+  /** Задача «в работе»: начата, но ещё не закрыта. Нужна метрикам и подсказкам. */
+  const IN_FLIGHT_IDS = ['progress', 'review', 'ready_to_test', 'testing', 'deploy'];
+
+  /**
+   * Причины, по которым задачу снимают со спринта («не закроем»).
+   * Снятие — это решение о скоупе, а не стадия работы, поэтому это флаг, а не колонка.
+   */
+  const DROP_REASONS = [
+    { id: 'carry',     label: 'Перенос в следующий спринт', short: 'Перенос'  },
+    { id: 'cancelled', label: 'Отменили',                   short: 'Отменена' },
+    { id: 'blocked',   label: 'Заблокировано',              short: 'Блок'     },
+  ];
+  const DROP_REASON_IDS = DROP_REASONS.map(r => r.id);
+  const dropReasonById = id => DROP_REASONS.find(r => r.id === id) || DROP_REASONS[0];
   const STATUS_IDS = STATUSES.map(s => s.id);
+
+  /**
+   * Синонимы статусов для массового ввода: как их пишут в Jira, Kaiten и в голове.
+   * Ключи уже нормализованы (нижний регистр, схлопнутые пробелы).
+   */
+  const STATUS_ALIASES = {
+    backlog:  ['backlog', 'бэклог', 'беклог', 'бэклог задач'],
+    todo:     ['to do', 'todo', 'to-do', 'open', 'new', 'к выполнению', 'сделать', 'запланировано',
+               'открыто', 'открыта', 'новая', 'новый', 'ожидает'],
+    progress: ['in progress', 'inprogress', 'in-progress', 'doing', 'wip',
+               'в процессе', 'в работе', 'в разработке', 'делается'],
+    review:   ['review', 'in review', 'code review', 'cr',
+               'ревью', 'на ревью', 'код-ревью', 'на проверке', 'проверка'],
+    ready_to_test: ['ready to test', 'ready for test', 'ready to qa', 'ready for qa', 'rft',
+                    'готово к тестированию', 'готова к тестированию', 'к тестированию', 'можно тестировать'],
+    testing:  ['testing', 'in testing', 'in test', 'qa', 'test',
+               'тестирование', 'на тестировании', 'в тестировании', 'тестируется', 'на qa'],
+    deploy:   ['deploy', 'deployment', 'deploying', 'ready to deploy', 'to deploy', 'release', 'staging',
+               'деплой', 'на деплое', 'на выкатке', 'выкатка', 'релиз', 'готово к деплою'],
+    done:     ['done', 'closed', 'resolved', 'complete', 'completed',
+               'готово', 'готова', 'выполнено', 'выполнена', 'закрыто', 'закрыта', 'завершено', 'сделано'],
+  };
+
+  /** Типы задач: разные написания → одно каноническое имя. */
+  const TYPE_ALIASES = {
+    'Задача':    ['задача', 'таска', 'task'],
+    'Баг':       ['баг', 'ошибка', 'дефект', 'bug', 'defect'],
+    'История':   ['история', 'user story', 'story'],
+    'Улучшение': ['улучшение', 'improvement', 'enhancement'],
+    'Фича':      ['фича', 'feature', 'новая функциональность'],
+    'Эпик':      ['эпик', 'epic'],
+    'Подзадача': ['подзадача', 'sub-task', 'subtask', 'sub task'],
+    'Тех. долг': ['тех долг', 'тех. долг', 'техдолг', 'tech debt', 'techdebt', 'chore'],
+    'Спайк':     ['спайк', 'spike', 'исследование', 'research'],
+  };
+
+  /** Ключ задачи вида DEV-123, ABC-7, ПРО-45. */
+  const TASK_KEY_RE = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9_]*[-_]\d+$/;
+
+  const normalizeWord = str => String(str).toLowerCase().replace(/[«»""'`.,;:]/g, '').replace(/\s+/g, ' ').trim();
+
+  /** Строка → id статуса или null. */
+  function matchStatus(str) {
+    const n = normalizeWord(str);
+    if (!n) return null;
+    if (STATUS_IDS.includes(n)) return n;
+    for (const [id, aliases] of Object.entries(STATUS_ALIASES)) {
+      if (aliases.includes(n)) return id;
+    }
+    return null;
+  }
+
+  /** Строка → каноническое название типа или null. */
+  function matchType(str) {
+    const n = normalizeWord(str);
+    if (!n) return null;
+    for (const [canonical, aliases] of Object.entries(TYPE_ALIASES)) {
+      if (aliases.includes(n)) return canonical;
+    }
+    return null;
+  }
+
+  const isNumeric = str => str !== '' && !isNaN(parseFloat(String(str).replace(',', '.')));
+
+  /**
+   * Разбивает строку на токены, уважая кавычки: "…", '…', «…», “…”.
+   * Возвращает [{ v: 'текст', quoted: true|false }].
+   */
+  function tokenize(line) {
+    // Одинарные кавычки намеренно не поддерживаем: апостроф в «don't» дороже, чем такой синтаксис
+    const PAIRS = { '"': '"', '«': '»', '\u201c': '\u201d' };
+    const tokens = [];
+    let buf = '', closing = null;
+
+    const flush = quoted => {
+      const v = buf.trim();
+      if (v) tokens.push({ v, quoted: !!quoted });
+      buf = '';
+    };
+
+    for (const ch of line) {
+      if (closing) {
+        if (ch === closing) { flush(true); closing = null; }
+        else buf += ch;
+      } else if (PAIRS[ch]) {
+        flush(false);
+        closing = PAIRS[ch];
+      } else if (/\s/.test(ch)) {
+        flush(false);
+      } else {
+        buf += ch;
+      }
+    }
+    flush(!!closing);   // незакрытая кавычка — не теряем хвост
+    return tokens;
+  }
+
+  /**
+   * Разбор одной строки массового ввода.
+   *
+   * Основной формат:  DEV-123 "Поменять название" Задача Готово 3
+   * Любое поле, кроме названия, можно опустить:
+   *   "Только название"
+   *   DEV-9 "Починить экспорт" Баг 2
+   *   Обновить документацию | 2        (старый формат с вертикальной чертой)
+   *   !DEV-7 "Прилетело в спринт" Баг "В процессе" 3
+   *
+   * @returns {object|null} { key, title, type, status, points, unplanned } либо null для пустой строки
+   */
+  function parseBulkLine(line) {
+    let text = String(line).trim();
+    if (!text) return null;
+
+    // «!» в начале — задача пришла во время спринта
+    let unplanned = false;
+    if (text.startsWith('!')) { unplanned = true; text = text.slice(1).trim(); }
+
+    // Совместимость со старым форматом: хвост после последней «|» — story points
+    let points = null;
+    const bar = text.lastIndexOf('|');
+    if (bar !== -1) {
+      const tail = text.slice(bar + 1).trim();
+      if (isNumeric(tail)) {
+        points = Math.max(0, parseFloat(tail.replace(',', '.')));
+        text = text.slice(0, bar).trim();
+      }
+    }
+
+    let tokens = tokenize(text);
+    if (!tokens.length) return null;
+
+    // 1) Story points — последний неквотированный числовой токен
+    const last = tokens[tokens.length - 1];
+    if (points === null && tokens.length > 1 && !last.quoted && isNumeric(last.v)) {
+      points = Math.max(0, parseFloat(last.v.replace(',', '.')));
+      tokens.pop();
+    }
+
+    // 2) Ключ задачи — первый токен вида DEV-123
+    let key = '';
+    if (tokens.length > 1 && !tokens[0].quoted && TASK_KEY_RE.test(tokens[0].v)) {
+      key = tokens.shift().v.toUpperCase();
+    }
+
+    // 3) Статус — с конца: до трёх токенов подряд («в процессе» без кавычек — это два токена)
+    let status = null;
+    for (let n = Math.min(3, tokens.length - 1); n >= 1 && !status; n--) {
+      const found = matchStatus(tokens.slice(-n).map(t => t.v).join(' '));
+      if (found) { status = found; tokens.splice(-n); }
+    }
+
+    // 4) Тип — тоже с конца, по словарю
+    let type = '';
+    for (let n = Math.min(2, tokens.length - 1); n >= 1 && !type; n--) {
+      const found = matchType(tokens.slice(-n).map(t => t.v).join(' '));
+      if (found) { type = found; tokens.splice(-n); }
+    }
+
+    // 5) Тип не из словаря, но название явно в кавычках → всё после названия считаем типом
+    if (!type && tokens.length > 1 && tokens[0].quoted) {
+      type = tokens.slice(1).map(t => t.v).join(' ');
+      tokens = [tokens[0]];
+    }
+
+    const title = tokens.map(t => t.v).join(' ').trim();
+    if (!title) return null;
+
+    return { key, title, type, status, points, unplanned };
+  }
+
+  /**
+   * Разбор всего текста массового ввода с подстановкой значений по умолчанию.
+   * Используется и для предпросмотра в модалке, и для самого импорта.
+   */
+  function parseBulkText(text, defaults = {}) {
+    return String(text)
+      .split('\n')
+      .map(line => parseBulkLine(line))
+      .filter(Boolean)
+      .map(item => ({
+        ...item,
+        status: item.status || (STATUS_IDS.includes(defaults.status) ? defaults.status : 'todo'),
+        unplanned: item.unplanned || !!defaults.unplanned,
+      }));
+  }
 
   /* ───────────── Утилиты ───────────── */
 
@@ -75,64 +279,6 @@ const Store = (() => {
     return `${formatDate(a)} — ${formatDate(b, !sameYear)}`;
   }
 
-  /* ───────────── Демо-данные для первого запуска ───────────── */
-
-  function demoSprint() {
-    const start = addDays(today(), -5);
-    const end = addDays(start, SPRINT_DEFAULT_DAYS - 1);
-    const at = (dayOffset, hour = 14) => {
-      const d = parseDate(addDays(start, dayOffset));
-      d.setHours(hour, 0, 0, 0);
-      return d.toISOString();
-    };
-
-    // [название, SP, статус, unplanned, исполнитель, день создания, день закрытия]
-    const rows = [
-      ['Дизайн новой страницы онбординга',      5, 'done',     false, 'Аня',   0, 1],
-      ['API: эндпоинт /v2/sprints',             8, 'done',     false, 'Марат', 0, 3],
-      ['Мобильная вёрстка дашборда',            5, 'done',     false, 'Лена',  0, 4],
-      ['Миграция БД на новую схему',            5, 'progress', false, 'Марат', 0, null],
-      ['Рефакторинг компонента TaskCard',       3, 'review',   false, 'Лена',  0, null],
-      ['Интеграционные тесты для биллинга',     8, 'todo',     false, 'Дима',  0, null],
-      ['Аналитика: события воронки регистрации',3, 'todo',     false, 'Аня',   0, null],
-      ['Обновить документацию API',             2, 'backlog',  false, '',      0, null],
-      ['Хотфикс: падение при экспорте CSV',     2, 'done',     true,  'Дима',  2, 2],
-      ['Поднять лимиты на проде',               1, 'done',     true,  'Марат', 4, 4],
-      ['Запрос от поддержки: выгрузка логов',   3, 'progress', true,  'Дима',  4, null],
-    ];
-
-    return {
-      id: uid(),
-      name: 'Спринт 24 — Онбординг',
-      goal: 'Раскатить новый онбординг на 100% трафика',
-      startDate: start,
-      endDate: end,
-      status: 'active',
-      createdAt: at(0, 10),
-      archivedAt: null,
-      tasks: rows.map(([title, points, status, unplanned, assignee, born, closed]) => ({
-        id: uid(),
-        title,
-        points,
-        status,
-        unplanned,
-        assignee,
-        createdAt: at(born, unplanned ? 11 : 10),
-        doneAt: closed === null ? null : at(closed, 17),
-      })),
-    };
-  }
-
-  function demoState() {
-    const sprint = demoSprint();
-    return {
-      version: 1,
-      activeSprintId: sprint.id,
-      settings: { metricMode: 'points', chartMode: 'burndown' },
-      sprints: [sprint],
-    };
-  }
-
   function emptyState() {
     return {
       version: 1,
@@ -172,13 +318,18 @@ const Store = (() => {
             ? Math.max(0, Number(t.points)) : null;
           return {
             id: t.id || uid(),
+            key: String(t.key || '').trim().toUpperCase().slice(0, 24),
             title: String(t.title || 'Без названия').slice(0, 200),
+            type: String(t.type || '').trim().slice(0, 32),
             points,
             status,
             unplanned: !!t.unplanned,
+            dropped: status === 'done' ? false : !!t.dropped,
+            dropReason: DROP_REASON_IDS.includes(t.dropReason) ? t.dropReason : 'carry',
             assignee: String(t.assignee || '').slice(0, 60),
             createdAt: t.createdAt || new Date().toISOString(),
             doneAt: status === 'done' ? (t.doneAt || new Date().toISOString()) : null,
+            droppedAt: status !== 'done' && t.dropped ? (t.droppedAt || new Date().toISOString()) : null,
           };
         }) : [],
       };
@@ -202,8 +353,8 @@ const Store = (() => {
     } catch (err) {
       console.warn('[store] не удалось прочитать localStorage:', err);
     }
-    if (!state) {            // первый запуск или битые данные — показываем демо
-      state = demoState();
+    if (!state) {            // первый запуск или битые данные — начинаем с чистого листа
+      state = emptyState();
       save();
     }
     return state;
@@ -288,19 +439,24 @@ const Store = (() => {
 
   /* ───────────── CRUD: задачи ───────────── */
 
-  function makeTask({ title, points, status, unplanned, assignee }) {
+  function makeTask({ key, title, type, points, status, unplanned, assignee }) {
     const st = STATUS_IDS.includes(status) ? status : 'todo';
     const now = new Date().toISOString();
     return {
       id: uid(),
+      key: (key || '').trim().toUpperCase().slice(0, 24),
       title: title.trim(),
+      type: (type || '').trim().slice(0, 32),
       points: points === '' || points === null || points === undefined || isNaN(Number(points))
         ? null : Math.max(0, Number(points)),
       status: st,
       unplanned: !!unplanned,
+      dropped: false,
+      dropReason: 'carry',
       assignee: (assignee || '').trim(),
       createdAt: now,
       doneAt: st === 'done' ? now : null,
+      droppedAt: null,
     };
   }
 
@@ -313,34 +469,65 @@ const Store = (() => {
     return task;
   }
 
-  /** Массовый ввод: «!Название | 5» → задача unplanned на 5 SP. */
-  function addTasksBulk(sprintId, text, { status, unplanned }) {
+  /**
+   * Массовый ввод. Строка вида «DEV-123 "Название" Задача Готово 3».
+   * Если задача с таким же ключом уже есть в спринте — она обновляется,
+   * а не дублируется: можно спокойно перезаливать выгрузку из трекера.
+   *
+   * @returns {{added:number, updated:number, total:number}}
+   */
+  function addTasksBulk(sprintId, text, defaults = {}) {
     const s = sprintById(sprintId);
-    if (!s) return 0;
+    if (!s) return { added: 0, updated: 0, total: 0 };
 
-    const created = text
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        let forceUnplanned = false;
-        if (line.startsWith('!')) { forceUnplanned = true; line = line.slice(1).trim(); }
+    const items = parseBulkText(text, defaults);
+    const created = [];
+    let updated = 0;
 
-        let points = null;
-        const parts = line.split('|');
-        if (parts.length > 1) {
-          const tail = parts.pop().trim().replace(',', '.');
-          const num = parseFloat(tail);
-          if (!isNaN(num)) { points = Math.max(0, num); line = parts.join('|').trim(); }
-        }
-        if (!line) return null;
-        return makeTask({ title: line, points, status, unplanned: unplanned || forceUnplanned });
-      })
-      .filter(Boolean);
+    items.forEach(item => {
+      const existing = item.key && s.tasks.find(t => t.key && t.key === item.key);
+      if (existing) {
+        applyTaskPatch(existing, {
+          title: item.title,
+          type: item.type || existing.type,
+          points: item.points === null ? existing.points : item.points,
+          status: item.status,
+          unplanned: item.unplanned || existing.unplanned,
+        });
+        updated++;
+      } else {
+        created.push(makeTask(item));
+      }
+    });
 
     s.tasks.unshift(...created);
     save();
-    return created.length;
+    return { added: created.length, updated, total: items.length };
+  }
+
+  /** Накатывает изменения на задачу, поддерживая doneAt/droppedAt в согласованном состоянии. */
+  function applyTaskPatch(task, patch) {
+    if (patch.status && patch.status !== task.status) {
+      // doneAt проставляем при входе в Done и снимаем при выходе — на нём строится burn-down
+      patch.doneAt = patch.status === 'done' ? (task.doneAt || new Date().toISOString()) : null;
+      // Закрытая задача не может быть снятой — иначе метрики начинают спорить сами с собой
+      if (patch.status === 'done' && task.dropped && patch.dropped === undefined) {
+        patch.dropped = false;
+      }
+    }
+    if (patch.dropped !== undefined) {
+      patch.dropped = !!patch.dropped;
+      // droppedAt — день урезания скоупа, по нему падает линия объёма на burn-up
+      patch.droppedAt = patch.dropped ? (task.droppedAt || new Date().toISOString()) : null;
+      if (patch.dropped && (patch.status || task.status) === 'done') patch.status = task.status;
+    }
+    if (patch.dropReason !== undefined && !DROP_REASON_IDS.includes(patch.dropReason)) {
+      patch.dropReason = 'carry';
+    }
+    if (patch.key !== undefined) patch.key = String(patch.key).trim().toUpperCase().slice(0, 24);
+    if (patch.type !== undefined) patch.type = String(patch.type).trim().slice(0, 32);
+    Object.assign(task, patch);
+    return task;
   }
 
   function updateTask(sprintId, taskId, patch) {
@@ -348,12 +535,7 @@ const Store = (() => {
     if (!s) return null;
     const t = s.tasks.find(x => x.id === taskId);
     if (!t) return null;
-
-    if (patch.status && patch.status !== t.status) {
-      // doneAt проставляем при входе в Done и снимаем при выходе — на нём строится burn-down
-      patch.doneAt = patch.status === 'done' ? (t.doneAt || new Date().toISOString()) : null;
-    }
-    Object.assign(t, patch);
+    applyTaskPatch(t, patch);
     save();
     return t;
   }
@@ -371,6 +553,17 @@ const Store = (() => {
     const idx = STATUS_IDS.indexOf(t.status);
     const next = STATUS_IDS[Math.min(STATUS_IDS.length - 1, Math.max(0, idx + dir))];
     return setTaskStatus(sprintId, taskId, next);
+  }
+
+  /** Снять задачу со спринта / вернуть обратно. */
+  function toggleTaskDropped(sprintId, taskId, reason) {
+    const s = sprintById(sprintId);
+    const t = s && s.tasks.find(x => x.id === taskId);
+    if (!t) return null;
+    return updateTask(sprintId, taskId, {
+      dropped: !t.dropped,
+      dropReason: reason || t.dropReason || 'carry',
+    });
   }
 
   function deleteTask(sprintId, taskId) {
@@ -408,7 +601,10 @@ const Store = (() => {
   }
 
   return {
-    STATUSES, STATUS_IDS, SPRINT_DEFAULT_DAYS,
+    STATUSES, STATUS_IDS, IN_FLIGHT_IDS, SPRINT_DEFAULT_DAYS, TYPE_ALIASES,
+    DROP_REASONS, DROP_REASON_IDS, dropReasonById,
+    // разбор массового ввода
+    parseBulkLine, parseBulkText, matchStatus, matchType,
     // утилиты дат
     uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange,
     // состояние
@@ -416,7 +612,7 @@ const Store = (() => {
     // спринты
     createSprint, updateSprint, archiveSprint, reopenSprint, deleteSprint, selectSprint,
     // задачи
-    addTask, addTasksBulk, updateTask, setTaskStatus, shiftTaskStatus, deleteTask,
+    addTask, addTasksBulk, updateTask, setTaskStatus, shiftTaskStatus, toggleTaskDropped, deleteTask,
     // данные
     exportJSON, parseImport, replaceState,
   };
