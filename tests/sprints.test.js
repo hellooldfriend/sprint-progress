@@ -174,6 +174,25 @@ test('импорт старого бэкапа без полей перенос�
   assert.equal(t.key, '');
 });
 
+test('настройки нормализуются при импорте, включая состояние панели', () => {
+  const { Store } = loadApp();
+  const state = Store.parseImport(JSON.stringify({
+    sprints: [],
+    settings: { metricMode: 'tasks', chartMode: 'burnup', sidebarCollapsed: 1,
+                statusMap: { 'Ожидает Релиза': 'deploy', 'Мимо': 'нет такой колонки' } },
+  }));
+
+  assert.equal(state.settings.metricMode, 'tasks');
+  assert.equal(state.settings.chartMode, 'burnup');
+  assert.equal(state.settings.sidebarCollapsed, true, 'приводится к булеву');
+  assert.deepEqual(state.settings.statusMap, { 'ожидает релиза': 'deploy' },
+    'ключ нормализуется, несуществующая колонка отбрасывается');
+
+  const bare = Store.parseImport(JSON.stringify({ sprints: [] }));
+  assert.deepEqual(bare.settings,
+    { metricMode: 'points', chartMode: 'burndown', statusMap: {}, csvMapping: null, sidebarCollapsed: false });
+});
+
 test('импорт мусора отклоняется с понятной ошибкой', () => {
   const { Store } = loadApp();
   assert.throws(() => Store.parseImport('{"foo":1}'), /не похож на бэкап/);

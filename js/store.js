@@ -298,7 +298,10 @@ const Store = (() => {
     return {
       version: 1,
       activeSprintId: null,
-      settings: { metricMode: 'points', chartMode: 'burndown', statusMap: {}, csvMapping: null },
+      settings: {
+        metricMode: 'points', chartMode: 'burndown',
+        statusMap: {}, csvMapping: null, sidebarCollapsed: false,
+      },
       sprints: [],
     };
   }
@@ -370,6 +373,7 @@ const Store = (() => {
       statusMap,
       csvMapping: rawSettings.csvMapping && typeof rawSettings.csvMapping === 'object'
         ? rawSettings.csvMapping : null,
+      sidebarCollapsed: !!rawSettings.sidebarCollapsed,
     };
     const activeSprintId = sprints.some(s => s.id === raw.activeSprintId)
       ? raw.activeSprintId

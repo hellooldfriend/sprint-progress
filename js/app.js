@@ -920,10 +920,41 @@
     }
   });
 
-  /* ═════════════ Мобильное меню ═════════════ */
+  /* ═════════════ Боковая панель ═════════════ */
 
-  $('#btnMenu').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+  const NARROW = '(max-width: 900px)';
+  const isNarrow = () => window.matchMedia(NARROW).matches;
+
+  /**
+   * Одна кнопка на два режима: на узком экране панель выдвижная,
+   * на десктопе — сворачивается, освобождая ширину под доску.
+   */
+  function toggleSidebar() {
+    if (isNarrow()) {
+      document.body.classList.toggle('nav-open');
+      return;
+    }
+    const collapsed = document.body.classList.toggle('sidebar-collapsed');
+    Store.setSetting('sidebarCollapsed', collapsed);
+    syncSidebarButton();
+  }
+
+  function syncSidebarButton() {
+    const collapsed = document.body.classList.contains('sidebar-collapsed');
+    const btn = $('#btnMenu');
+    if (isNarrow()) {
+      btn.title = 'Меню';
+      btn.setAttribute('aria-label', 'Меню');
+      return;
+    }
+    btn.title = collapsed ? 'Показать панель (b)' : 'Скрыть панель (b)';
+    btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('aria-expanded', String(!collapsed));
+  }
+
+  $('#btnMenu').addEventListener('click', toggleSidebar);
   $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
+  window.matchMedia(NARROW).addEventListener('change', syncSidebarButton);
 
   /* ═════════════ Горячие клавиши ═════════════ */
 
@@ -935,6 +966,9 @@
     if (e.key === 'n' || e.key === 'т') {           // новая задача
       const s = Store.activeSprint();
       if (s && s.status !== 'archived') { e.preventDefault(); openTaskModal(null); }
+    } else if (e.key === 'b' || e.key === 'и') {    // свернуть/показать панель
+      e.preventDefault();
+      toggleSidebar();
     } else if (e.key === 's' || e.key === 'ы') {    // сводка по спринту
       if (Store.activeSprint()) { e.preventDefault(); $('#btnSummary').click(); }
     } else if (e.key === '/') {                     // фокус в поиск
@@ -947,5 +981,7 @@
 
   Store.load();
   fillStatusSelects();
+  document.body.classList.toggle('sidebar-collapsed', !!Store.get().settings.sidebarCollapsed);
+  syncSidebarButton();
   UI.render();
 })();
