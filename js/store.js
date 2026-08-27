@@ -478,15 +478,54 @@ const Store = (() => {
     status:   ['status', 'статус'],
     points:   ['story points', 'story point estimate', 'оценка', 'story points estimate'],
     assignee: ['assignee', 'исполнитель', 'ответственный'],
+    resolved:  ['resolved', 'resolution date', 'дата решения', 'решено', 'дата закрытия'],
   };
   const CSV_FIELDS = Object.keys(CSV_FIELD_HINTS);
   const CSV_FIELD_LABELS = {
     key: 'Номер задачи', title: 'Название', type: 'Тип',
     status: 'Статус', points: 'Story points', assignee: 'Исполнитель',
+    resolved: 'Дата закрытия',
   };
 
   /** Заголовки колонок со спринтами — по ним считается, сколько спринтов едет задача. */
   const CSV_SPRINT_HINTS = ['sprint', 'спринт'];
+
+  const JIRA_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+                        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+  /**
+   * Дата из выгрузки → ISO. Jira по умолчанию отдаёт «13/Aug/26 3:04 PM»,
+   * локализованные экспорты — «13.08.2026 15:04», API — ISO.
+   */
+  function parseDateTime(str) {
+    const raw = String(str || '').trim();
+    if (!raw) return null;
+
+    const jira = raw.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?:\s*([AaPp])[Mm])?)?/);
+    if (jira) {
+      const month = JIRA_MONTHS[jira[2].toLowerCase()];
+      if (month !== undefined) {
+        let year = Number(jira[3]);
+        if (year < 100) year += 2000;
+        let hour = Number(jira[4] || 12);
+        if (jira[6]) {
+          const pm = jira[6].toLowerCase() === 'p';
+          if (pm && hour < 12) hour += 12;
+          if (!pm && hour === 12) hour = 0;
+        }
+        return new Date(year, month, Number(jira[1]), hour, Number(jira[5] || 0)).toISOString();
+      }
+    }
+
+    const local = raw.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (local) {
+      return new Date(Number(local[3]), Number(local[2]) - 1, Number(local[1]),
+                      Number(local[4] || 12), Number(local[5] || 0)).toISOString();
+    }
+
+    const ts = Date.parse(raw);
+    return isNaN(ts) ? null : new Date(ts).toISOString();
+  }
 
   /** Определяет разделитель по первой строке: Jira отдаёт запятую, локали — точку с запятой. */
   function detectDelimiter(text) {
@@ -588,6 +627,7 @@ const Store = (() => {
       const carryCount = Math.max(0, sprintNames.length - 1);
 
       return {
+        doneAt: status === 'done' ? parseDateTime(cell(row, mapping.resolved)) : null,
         key: cell(row, mapping.key).toUpperCase(),
         title,
         type: matchType(cell(row, mapping.type)) || cell(row, mapping.type),
@@ -664,15 +704,17 @@ const Store = (() => {
     items.forEach(item => {
       const existing = item.key && s.tasks.find(t => t.key && t.key === item.key);
       if (existing) {
+        // Обновляем только то, что знает трекер. Unplanned и «Не закроем» — наши локальные
+        // решения, в выгрузке их нет, поэтому повторный импорт их не трогает.
         applyTaskPatch(existing, {
           title: item.title,
           type: item.type || existing.type,
           points: item.points === null ? existing.points : item.points,
           status: item.status,
-          unplanned: item.unplanned || existing.unplanned,
           assignee: item.assignee || existing.assignee,
           carryCount: item.carryCount || existing.carryCount,
           carriedFrom: item.carriedFrom || existing.carriedFrom,
+          ...(item.doneAt ? { doneAt: item.doneAt } : {}),
         });
         updated++;
       } else {
@@ -681,6 +723,8 @@ const Store = (() => {
           task.carryCount = item.carryCount;
           task.carriedFrom = item.carriedFrom;
         }
+        // Дата закрытия из выгрузки — чтобы burn-down знал реальный день, а не момент импорта
+        if (item.doneAt && task.status === 'done') task.doneAt = item.doneAt;
         created.push(task);
       }
     });
@@ -694,7 +738,9 @@ const Store = (() => {
   function applyTaskPatch(task, patch) {
     if (patch.status && patch.status !== task.status) {
       // doneAt проставляем при входе в Done и снимаем при выходе — на нём строится burn-down
-      patch.doneAt = patch.status === 'done' ? (task.doneAt || new Date().toISOString()) : null;
+      patch.doneAt = patch.status === 'done'
+        ? (patch.doneAt || task.doneAt || new Date().toISOString())
+        : null;
       // Закрытая задача не может быть снятой — иначе метрики начинают спорить сами с собой
       if (patch.status === 'done' && task.dropped && patch.dropped === undefined) {
         patch.dropped = false;
@@ -845,7 +891,7 @@ const Store = (() => {
     // разбор массового ввода
     parseBulkLine, parseBulkText, matchStatus, matchType, resolveStatus,
     // импорт CSV из Jira
-    parseCSV, detectCsvMapping, itemsFromCsv, CSV_FIELDS, CSV_FIELD_LABELS,
+    parseCSV, detectCsvMapping, itemsFromCsv, parseDateTime, CSV_FIELDS, CSV_FIELD_LABELS,
     normalizeStatusKey: normalizeWord,
     // утилиты дат
     uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange,

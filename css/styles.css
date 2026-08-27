@@ -624,6 +624,11 @@ input[type="checkbox"].carry-check {
 }
 .bulk-preview__empty { padding: 18px 14px; text-align: center; font-size: 12px; color: var(--faint); }
 .bulk-preview__list { max-height: 196px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.bulk-preview__warn {
+  padding: 9px 12px; font-size: 11.5px; line-height: 1.5;
+  color: #fbbf24; background: var(--amber-soft);
+  border-top: 1px solid rgba(245, 158, 11, .2);
+}
 .bulk-preview__sum {
   padding: 7px 12px; font-size: 11.5px; color: var(--muted);
   border-top: 1px solid var(--border); background: var(--surface-2);

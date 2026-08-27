@@ -409,7 +409,18 @@
       skipped ? `${skipped} ${Metrics.plural(skipped, 'строка пропущена', 'строки пропущено', 'строк пропущено')} без названия` : '',
     ].filter(Boolean).join(' · ');
 
-    box.innerHTML = `<div class="bulk-preview__list">${rows}</div><div class="bulk-preview__sum">${summary}</div>`;
+    // Импорт ничего не удаляет: если задачу убрали из спринта в трекере, здесь она останется
+    const fileKeys = new Set(items.map(i => i.key).filter(Boolean));
+    const orphans = (sprint ? sprint.tasks : []).filter(t => t.key && !fileKeys.has(t.key));
+    const orphanNote = orphans.length && willUpdate
+      ? `<div class="bulk-preview__warn">
+           В спринте ${orphans.length} ${Metrics.plural(orphans.length, 'задача', 'задачи', 'задач')}, ${Metrics.plural(orphans.length, 'которой', 'которых', 'которых')} нет в файле —
+           ${UI.esc(orphans.slice(0, 3).map(t => t.key).join(', '))}${orphans.length > 3 ? ' и др.' : ''}.
+           Импорт ничего не удаляет: если их убрали из спринта в трекере, снимите их здесь вручную.
+         </div>`
+      : '';
+
+    box.innerHTML = `<div class="bulk-preview__list">${rows}</div>${orphanNote}<div class="bulk-preview__sum">${summary}</div>`;
     $('#bulkSubmit').disabled = false;
   }
 
@@ -492,6 +503,8 @@
   });
   $('#btnBulkAdd').addEventListener('click', () => {
     if (!Store.activeSprint()) return UI.toast('Сначала создайте спринт', 'err');
+    const sprint = Store.activeSprint();
+    $('#bulkForm').unplanned.value = sprint && Store.today() > sprint.startDate ? '1' : '0';
     switchBulkMode('text');
     openModal('bulkModal');
   });

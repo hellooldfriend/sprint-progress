@@ -166,8 +166,14 @@ const Metrics = (() => {
     const tasks = sprint.tasks || [];
     const todayISO = Store.today();
 
-    // Задачи, заведённые до старта спринта, считаем объёмом нулевого дня
+    /**
+     * День, с которого задача входит в объём спринта.
+     * Плановая — это обязательство, взятое на планировании: она в объёме с первого дня,
+     * когда бы её физически ни завели в инструменте (например, импортом в середине спринта).
+     * Внеплановая входит в объём в день, когда появилась.
+     */
     const bornDay = t => {
+      if (!t.unplanned) return sprint.startDate;
       const d = dayOf(t.createdAt);
       return d < sprint.startDate ? sprint.startDate : d;
     };
