@@ -26,6 +26,10 @@ const Metrics = (() => {
     const done = tasks.filter(t => t.status === 'done');
     // Снятые со спринта: в объём обязательства входят, в remaining и в темп — нет
     const dropped = tasks.filter(t => t.dropped);
+    // Приехали из прошлых спринтов: это долг, а не свежевзятая работа
+    const carried = tasks.filter(t => (t.carryCount || 0) > 0);
+    // Долгожители: carryCount >= 2 значит задача идёт третий спринт подряд
+    const longRunners = tasks.filter(t => (t.carryCount || 0) >= 2);
     const doneP = planned.filter(t => t.status === 'done');
     const doneU = unplanned.filter(t => t.status === 'done');
     // «В работе» — всё, что начали, но ещё не закрыли: от In Progress до Deploy
@@ -77,6 +81,11 @@ const Metrics = (() => {
       unplannedTasks: unplanned.length, unplannedPoints: sum(unplanned, 'points'),
       doneTasks, donePoints,
       droppedTasks, droppedPoints, dropByReason,
+      carriedTasks: carried.length, carriedPoints: sum(carried, 'points'),
+      carriedShareTasks: pct(carried.length, totalTasks),
+      carriedSharePoints: pct(sum(carried, 'points'), totalPoints),
+      longRunners: longRunners.length,
+      maxCarryCount: carried.reduce((max, t) => Math.max(max, t.carryCount || 0), 0),
       droppedShareTasks: pct(droppedTasks, totalTasks),
       droppedSharePoints: pct(droppedPoints, totalPoints),
       donePlannedTasks: doneP.length, donePlannedPoints: sum(doneP, 'points'),
@@ -106,6 +115,8 @@ const Metrics = (() => {
       done: p ? m.donePoints : m.doneTasks,
       dropped: p ? m.droppedPoints : m.droppedTasks,
       droppedShare: p ? m.droppedSharePoints : m.droppedShareTasks,
+      carried: p ? m.carriedPoints : m.carriedTasks,
+      carriedShare: p ? m.carriedSharePoints : m.carriedShareTasks,
       donePlanned: p ? m.donePlannedPoints : m.donePlannedTasks,
       doneUnplanned: p ? m.doneUnplannedPoints : m.doneUnplannedTasks,
       inProgress: p ? m.inProgressPoints : m.inProgressTasks,

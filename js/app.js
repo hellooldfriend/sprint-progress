@@ -377,21 +377,7 @@
 
     if (btn.dataset.act === 'edit') return openSprintModal(s);
 
-    if (btn.dataset.act === 'archive') {
-      const m = Metrics.sprintMetrics(s);
-      const ok = await confirmDialog({
-        title: 'Закрыть спринт?',
-        text: `«${s.name}» уйдёт в архив: ${m.pctPoints}% по story points, velocity ${Metrics.fmt(m.velocity)} SP, ` +
-              `${m.remainingTasks} ${Metrics.plural(m.remainingTasks, 'задача', 'задачи', 'задач')} не закрыто. ` +
-              `Спринт можно будет вернуть в работу.`,
-        okLabel: 'Закрыть спринт', danger: false,
-      });
-      if (!ok) return;
-      Store.archiveSprint(s.id);
-      UI.render();
-      UI.toast('Спринт закрыт и добавлен в историю', 'ok');
-      return;
-    }
+    if (btn.dataset.act === 'archive') return openCloseSprintModal();
 
     if (btn.dataset.act === 'reopen') return reopenActive();
 
@@ -496,6 +482,151 @@
       UI.render();
       UI.toast('Задача удалена');
     }
+  });
+
+  /* ═════════════ Закрытие спринта с переносом ═════════════ */
+
+  /** Строит модалку закрытия: цифры спринта + список незакрытых задач + цель переноса. */
+  function openCloseSprintModal() {
+    const sprint = Store.activeSprint();
+    if (!sprint) return;
+
+    const m = Metrics.sprintMetrics(sprint);
+    const v = Metrics.inMode(m, Store.get().settings.metricMode);
+    const candidates = Store.carryCandidates(sprint.id);
+
+    $('#closeSummary').innerHTML = `
+      <div class="close-summary__row">
+        <span><b>${v.pct}%</b> закрытие спринта</span>
+        <span><b>${Metrics.fmt(m.velocity)}</b> SP velocity</span>
+        <span><b>${Metrics.fmt(v.remaining)}</b> ${v.unit} не закрыто</span>
+      </div>
+      <div class="hint">«${UI.esc(sprint.name)}» уедет в историю. Вернуть в работу можно в любой момент.</div>`;
+
+    // Список незакрытых задач с полем остаточной оценки
+    $('#carryBlock').hidden = candidates.length === 0;
+    $('#carryTargetBlock').hidden = candidates.length === 0;
+    $('#carryTargetHint').hidden = candidates.length === 0;
+
+    $('#carryList').innerHTML = candidates.map(t => {
+      const st = Store.STATUSES.find(x => x.id === t.status);
+      const carry = t.carryCount || 0;
+      return `
+        <label class="carry-row">
+          <input type="checkbox" class="carry-check" data-task="${t.id}" checked />
+          <span class="carry-row__main">
+            ${t.key ? `<span class="bulk-row__key">${UI.esc(t.key)}</span>` : ''}
+            <span class="bulk-row__title">${UI.esc(t.title)}</span>
+            <span class="tag"><i class="dot ${st.dot}"></i>${st.label}</span>
+            ${carry ? `<span class="tag ${carry >= 2 ? 'tag--longrun' : 'tag--carry'}">${carry + 1}-й спринт</span>` : ''}
+          </span>
+          <span class="carry-row__points">
+            <input class="input input--mini" type="number" min="0" max="999" step="0.5"
+                   data-points="${t.id}" value="${t.points === null ? '' : t.points}" placeholder="—" />
+            <span class="hint hint--tiny">SP</span>
+          </span>
+        </label>`;
+    }).join('');
+
+    // Куда переносить: другой активный спринт или новый
+    const others = Store.sortedSprints().filter(x => x.id !== sprint.id && x.status === 'active');
+    $('#carryTarget').innerHTML = [
+      '<option value="__new__">Создать новый спринт</option>',
+      ...others.map(x => `<option value="${x.id}">${UI.esc(x.name)}</option>`),
+      '<option value="__none__">Не переносить</option>',
+    ].join('');
+    $('#carryTarget').value = others.length ? others[0].id : '__new__';
+    $('#closeSprintForm').newName.value = suggestSprintName();
+
+    syncCarryTarget();
+    updateCarrySummary();
+    openModal('closeSprintModal');
+  }
+
+  /** Показывает поле названия только когда создаём новый спринт. */
+  function syncCarryTarget() {
+    const form = $('#closeSprintForm');
+    const sprint = Store.activeSprint();
+    const isNew = form.carryTo.value === '__new__';
+    const isNone = form.carryTo.value === '__none__';
+
+    $('#carryNewNameField').hidden = !isNew;
+    $('#carryList').classList.toggle('is-off', isNone);
+    $('.carry-actions').hidden = isNone;
+
+    if (!sprint) return;
+    const start = Store.addDays(sprint.endDate, 1);
+    const end = Store.addDays(start, Store.SPRINT_DEFAULT_DAYS - 1);
+    $('#carryTargetHint').textContent = isNone
+      ? 'Незакрытые задачи останутся в закрытом спринте как невыполненные.'
+      : isNew
+        ? `Новый спринт: ${Store.formatRange(start, end)} — 14 дней, сразу станет текущим.`
+        : 'Задачи приедут с сохранением номера, типа и текущей стадии работы.';
+  }
+
+  function updateCarrySummary() {
+    const checked = $$('.carry-check').filter(c => c.checked);
+    const points = checked.reduce((acc, c) => {
+      const input = $(`[data-points="${c.dataset.task}"]`);
+      return acc + (parseFloat(input.value) || 0);
+    }, 0);
+    $('#carrySummary').textContent = checked.length
+      ? `Перенесём ${checked.length} ${Metrics.plural(checked.length, 'задачу', 'задачи', 'задач')} · ${Metrics.fmt(points)} SP`
+      : 'Ничего не переносим';
+  }
+
+  $('#closeSprintForm').addEventListener('change', e => {
+    if (e.target.name === 'carryTo') syncCarryTarget();
+    updateCarrySummary();
+  });
+  $('#closeSprintForm').addEventListener('input', e => {
+    if (e.target.dataset.points !== undefined) updateCarrySummary();
+  });
+  $('#closeSprintForm').addEventListener('click', e => {
+    const all = e.target.closest('[data-carry-all]');
+    if (!all) return;
+    $$('.carry-check').forEach(c => { c.checked = all.dataset.carryAll === '1'; });
+    updateCarrySummary();
+  });
+
+  $('#closeSprintForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const sprint = Store.activeSprint();
+    if (!sprint) return;
+    const form = e.target;
+    const target = form.carryTo.value;
+
+    const items = target === '__none__' ? [] : $$('.carry-check')
+      .filter(c => c.checked)
+      .map(c => {
+        const raw = $(`[data-points="${c.dataset.task}"]`).value;
+        return { taskId: c.dataset.task, points: raw === '' ? null : Math.max(0, Number(raw)) };
+      });
+
+    let targetSprint = null;
+    if (items.length) {
+      if (target === '__new__') {
+        const start = Store.addDays(sprint.endDate, 1);
+        targetSprint = Store.createSprint({
+          name: form.newName.value.trim() || suggestSprintName(),
+          goal: '',
+          startDate: start,
+          endDate: Store.addDays(start, Store.SPRINT_DEFAULT_DAYS - 1),
+        });
+      } else {
+        targetSprint = Store.sprintById(target);
+      }
+    }
+
+    const moved = targetSprint ? Store.carryTasks(sprint.id, targetSprint.id, items) : 0;
+    Store.archiveSprint(sprint.id);
+    if (targetSprint) Store.selectSprint(targetSprint.id);
+
+    closeModal('closeSprintModal');
+    UI.render();
+    UI.toast(moved
+      ? `Спринт закрыт · ${moved} ${Metrics.plural(moved, 'задача переехала', 'задачи переехали', 'задач переехало')} в «${targetSprint.name}»`
+      : 'Спринт закрыт и добавлен в историю', 'ok');
   });
 
   /* ═════════════ Drag & drop ═════════════ */

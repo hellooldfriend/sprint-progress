@@ -20,6 +20,19 @@ const UI = (() => {
   const mode = () => Store.get().settings.metricMode;
   /** Баги подсвечиваем отдельно — их видно на доске с первого взгляда. */
   const isBugType = type => Store.matchType(type) === 'Баг';
+
+  /**
+   * Тег переноса. Один раз — просто «откуда приехала»,
+   * дальше — счётчик спринтов: задача-долгожитель должна мозолить глаза.
+   */
+  function carryTag(t) {
+    const n = t.carryCount || 0;
+    if (!n) return '';
+    const from = t.carriedFrom ? t.carriedFrom.name : 'прошлого спринта';
+    const title = `Едет ${n + 1}-й спринт подряд · последний раз из «${from}»`;
+    const text = n === 1 ? `Перенос из ${from}` : `${n + 1}-й спринт`;
+    return `<span class="tag ${n >= 2 ? 'tag--longrun' : 'tag--carry'}" title="${esc(title)}">${esc(text)}</span>`;
+  }
   const unitLabel = () => (mode() === 'points' ? 'SP' : 'задач');
 
   /* ═════════════ Иконки ═════════════ */
@@ -124,6 +137,7 @@ const UI = (() => {
       ${metricsHTML(m, v)}
       ${splitHTML(m, v)}
       ${chartHTML(s)}
+      ${longRunnerBanner(s, m)}
       <div class="section-title">Доска задач</div>
       ${toolbarHTML(s)}
       <div id="boardMount"></div>
@@ -163,6 +177,23 @@ const UI = (() => {
         <span>${statusHint(m, v)}</span>
       </div>
     </section>`;
+  }
+
+  /** Задачи, которые едут третий спринт подряд, — повод пересобрать или отменить. */
+  function longRunnerBanner(sprint, m) {
+    if (!m.longRunners) return '';
+    const names = sprint.tasks
+      .filter(t => (t.carryCount || 0) >= 2)
+      .map(t => (t.key ? `${t.key} ` : '') + t.title);
+    return `
+      <div class="banner banner--warn">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 4l9 16H3l9-16zM12 10v4m0 3v.5" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>
+          <strong>${m.longRunners} ${Metrics.plural(m.longRunners, 'задача едет', 'задачи едут', 'задач едут')} третий спринт подряд</strong>
+          — обычно это значит, что задача нарезана слишком крупно или заблокирована.
+          Стоит разбить её или закрыть как отменённую: ${esc(names.slice(0, 3).join(', '))}${names.length > 3 ? ' и др.' : ''}
+        </span>
+      </div>`;
   }
 
   /** Дружелюбная подсказка «успеваем / отстаём». */
@@ -214,6 +245,12 @@ const UI = (() => {
         spark: 100 - v.pct, sparkColor: 'var(--blue)',
         foot: `В работе — от In Progress до Deploy: ${Metrics.fmt(v.inProgress)} ${v.unit}`,
       })}
+      ${v.carried > 0 ? card({
+        dot: 'dot--muted', title: 'Перенос из прошлого', value: Metrics.fmt(v.carried), unit: v.unit,
+        foot: m.longRunners > 0
+          ? `${v.carriedShare}% объёма спринта · ${m.longRunners} ${Metrics.plural(m.longRunners, 'задача едет', 'задачи едут', 'задач едут')} 3-й спринт и дольше`
+          : `${v.carriedShare}% объёма спринта — это долг, а не свежая работа`,
+      }) : ''}
       ${card({
         dot: 'dot--muted', title: 'Не закроем', value: Metrics.fmt(v.dropped), unit: v.unit,
         foot: v.dropped > 0
@@ -377,6 +414,7 @@ const UI = (() => {
         ${t.type ? `<span class="tag ${isBugType(t.type) ? 'tag--bug' : 'tag--type'}">${esc(t.type)}</span>` : ''}
         ${t.unplanned ? '<span class="tag tag--unplanned">Unplanned</span>' : ''}
         ${t.dropped ? `<span class="tag tag--dropped">Снято · ${esc(Store.dropReasonById(t.dropReason).short)}</span>` : ''}
+        ${carryTag(t)}
         ${t.assignee ? `<span class="tag tag--assignee">${esc(t.assignee)}</span>` : ''}
         <span class="tag" title="Добавлена ${new Date(t.createdAt).toLocaleString('ru-RU')}">${Store.formatDate(Store.toISODate(new Date(t.createdAt)))}</span>
         <span class="spacer"></span>
@@ -479,7 +517,10 @@ const UI = (() => {
           </div>
           <div class="t-sub">${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${v.unit}</div>
         </td>
-        <td class="t-num">${Metrics.fmt(v.planned)}<span class="t-sub"> ${v.unit}</span></td>
+        <td class="t-num">
+          ${Metrics.fmt(v.planned)}<span class="t-sub"> ${v.unit}</span>
+          ${v.carried ? `<div class="t-sub">перенос ${Metrics.fmt(v.carried)} · ${v.carriedShare}%</div>` : ''}
+        </td>
         <td class="t-num" style="color:${v.unplanned ? 'var(--amber)' : 'inherit'}">
           ${Metrics.fmt(v.unplanned)}<span class="t-sub"> ${v.unplanned ? `· ${v.unplannedShare}%` : ''}</span>
         </td>

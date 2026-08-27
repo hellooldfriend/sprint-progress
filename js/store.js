@@ -12,6 +12,7 @@
        status: 'active'|'archived', createdAt, archivedAt,
        tasks: [{ id, key:string, title, type:string, points:number|null, status,
                  unplanned:boolean, dropped:boolean, dropReason:string, assignee:string,
+                 carriedFrom:{id,name}|null, carryCount:number,
                  createdAt:ISO, doneAt:ISO|null, droppedAt:ISO|null }]
      }]
    }
@@ -326,6 +327,10 @@ const Store = (() => {
             unplanned: !!t.unplanned,
             dropped: status === 'done' ? false : !!t.dropped,
             dropReason: DROP_REASON_IDS.includes(t.dropReason) ? t.dropReason : 'carry',
+            carriedFrom: t.carriedFrom && t.carriedFrom.id
+              ? { id: String(t.carriedFrom.id), name: String(t.carriedFrom.name || 'прошлый спринт').slice(0, 120) }
+              : null,
+            carryCount: Math.max(0, Math.round(Number(t.carryCount) || 0)),
             assignee: String(t.assignee || '').slice(0, 60),
             createdAt: t.createdAt || new Date().toISOString(),
             doneAt: status === 'done' ? (t.doneAt || new Date().toISOString()) : null,
@@ -453,6 +458,9 @@ const Store = (() => {
       unplanned: !!unplanned,
       dropped: false,
       dropReason: 'carry',
+      // Откуда приехала задача и сколько спринтов уже едет (0 — свежая)
+      carriedFrom: null,
+      carryCount: 0,
       assignee: (assignee || '').trim(),
       createdAt: now,
       doneAt: st === 'done' ? now : null,
@@ -555,6 +563,55 @@ const Store = (() => {
     return setTaskStatus(sprintId, taskId, next);
   }
 
+  /**
+   * Задачи, которые имеет смысл предлагать к переносу при закрытии спринта:
+   * всё незакрытое, кроме отменённого — отменённое переносить незачем.
+   */
+  function carryCandidates(sprintId) {
+    const s = sprintById(sprintId);
+    if (!s) return [];
+    return s.tasks.filter(t => t.status !== 'done' && !(t.dropped && t.dropReason === 'cancelled'));
+  }
+
+  /**
+   * Переносит задачи в другой спринт: в исходном они помечаются «Не закроем · Перенос»,
+   * в целевом создаются заново с остаточной оценкой, сохранением номера и стадии работы.
+   *
+   * @param {Array<{taskId:string, points:number|null}>} items остаточные оценки по задачам
+   * @returns {number} сколько задач переехало
+   */
+  function carryTasks(fromSprintId, toSprintId, items) {
+    const from = sprintById(fromSprintId);
+    const to = sprintById(toSprintId);
+    if (!from || !to || from.id === to.id || !items || !items.length) return 0;
+
+    const created = [];
+    items.forEach(({ taskId, points }) => {
+      const src = from.tasks.find(t => t.id === taskId);
+      if (!src || src.status === 'done') return;
+
+      // В закрываемом спринте задача честно уходит из remaining
+      applyTaskPatch(src, { dropped: true, dropReason: 'carry' });
+
+      const task = makeTask({
+        key: src.key,
+        title: src.title,
+        type: src.type,
+        points: points === null || points === undefined || points === '' ? src.points : points,
+        status: src.status,      // стадия работы сохраняется: доделывать с того же места
+        unplanned: false,        // в новом спринте это плановая работа, взятая осознанно
+        assignee: src.assignee,
+      });
+      task.carriedFrom = { id: from.id, name: from.name };
+      task.carryCount = (src.carryCount || 0) + 1;
+      created.push(task);
+    });
+
+    to.tasks.unshift(...created);
+    save();
+    return created.length;
+  }
+
   /** Снять задачу со спринта / вернуть обратно. */
   function toggleTaskDropped(sprintId, taskId, reason) {
     const s = sprintById(sprintId);
@@ -613,6 +670,7 @@ const Store = (() => {
     createSprint, updateSprint, archiveSprint, reopenSprint, deleteSprint, selectSprint,
     // задачи
     addTask, addTasksBulk, updateTask, setTaskStatus, shiftTaskStatus, toggleTaskDropped, deleteTask,
+    carryCandidates, carryTasks,
     // данные
     exportJSON, parseImport, replaceState,
   };

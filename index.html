@@ -302,6 +302,51 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
   </div>
 </div>
 
+<div class="modal modal--wide" id="closeSprintModal" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="closeSprintTitle">
+    <header class="modal__head">
+      <h2 id="closeSprintTitle">Закрыть спринт</h2>
+      <button class="icon-btn" data-close aria-label="Закрыть">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <form class="modal__body form" id="closeSprintForm">
+      <div class="close-summary" id="closeSummary"><!-- JS --></div>
+
+      <div class="field" id="carryBlock">
+        <span class="field__label">
+          Незакрытые задачи
+          <em>— перенести в следующий спринт с остаточной оценкой</em>
+        </span>
+        <div class="carry-list" id="carryList"><!-- JS --></div>
+        <div class="carry-actions">
+          <button type="button" class="btn btn--ghost btn--sm" data-carry-all="1">Выбрать все</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-carry-all="0">Снять все</button>
+          <span class="hint" id="carrySummary"></span>
+        </div>
+      </div>
+
+      <div class="grid-2" id="carryTargetBlock">
+        <label class="field">
+          <span class="field__label">Куда переносить</span>
+          <select class="input" name="carryTo" id="carryTarget"></select>
+        </label>
+        <label class="field" id="carryNewNameField">
+          <span class="field__label">Название нового спринта</span>
+          <input class="input" name="newName" maxlength="80" autocomplete="off" />
+        </label>
+      </div>
+      <p class="hint" id="carryTargetHint"></p>
+
+      <footer class="modal__foot">
+        <button type="button" class="btn btn--ghost" data-close>Отмена</button>
+        <button type="submit" class="btn btn--primary" id="closeSprintSubmit">Закрыть спринт</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
 <div class="modal modal--sm" id="confirmModal" hidden>
   <div class="modal__backdrop" data-close></div>
   <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
