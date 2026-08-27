@@ -91,6 +91,19 @@ const Store = (() => {
 
   const normalizeWord = str => String(str).toLowerCase().replace(/[«»""'`.,;:]/g, '').replace(/\s+/g, ' ').trim();
 
+  /**
+   * Строка → id статуса с учётом пользовательского маппинга.
+   * Сначала смотрим, что тимлид сам сопоставил (у каждой команды свой workflow),
+   * потом общий словарь синонимов.
+   */
+  function resolveStatus(str) {
+    const n = normalizeWord(str);
+    if (!n) return null;
+    const custom = state && state.settings && state.settings.statusMap;
+    if (custom && STATUS_IDS.includes(custom[n])) return custom[n];
+    return matchStatus(n);
+  }
+
   /** Строка → id статуса или null. */
   function matchStatus(str) {
     const n = normalizeWord(str);
@@ -284,7 +297,7 @@ const Store = (() => {
     return {
       version: 1,
       activeSprintId: null,
-      settings: { metricMode: 'points', chartMode: 'burndown' },
+      settings: { metricMode: 'points', chartMode: 'burndown', statusMap: {}, csvMapping: null },
       sprints: [],
     };
   }
@@ -327,8 +340,8 @@ const Store = (() => {
             unplanned: !!t.unplanned,
             dropped: status === 'done' ? false : !!t.dropped,
             dropReason: DROP_REASON_IDS.includes(t.dropReason) ? t.dropReason : 'carry',
-            carriedFrom: t.carriedFrom && t.carriedFrom.id
-              ? { id: String(t.carriedFrom.id), name: String(t.carriedFrom.name || 'прошлый спринт').slice(0, 120) }
+            carriedFrom: t.carriedFrom && (t.carriedFrom.id || t.carriedFrom.name)
+              ? { id: String(t.carriedFrom.id || ''), name: String(t.carriedFrom.name || 'прошлый спринт').slice(0, 120) }
               : null,
             carryCount: Math.max(0, Math.round(Number(t.carryCount) || 0)),
             assignee: String(t.assignee || '').slice(0, 60),
@@ -340,9 +353,19 @@ const Store = (() => {
       };
     });
 
+    const rawSettings = raw.settings || {};
+    const statusMap = {};
+    if (rawSettings.statusMap && typeof rawSettings.statusMap === 'object') {
+      Object.entries(rawSettings.statusMap).forEach(([from, to]) => {
+        if (STATUS_IDS.includes(to)) statusMap[normalizeWord(from)] = to;
+      });
+    }
     const settings = {
-      metricMode: raw.settings && raw.settings.metricMode === 'tasks' ? 'tasks' : 'points',
-      chartMode: raw.settings && raw.settings.chartMode === 'burnup' ? 'burnup' : 'burndown',
+      metricMode: rawSettings.metricMode === 'tasks' ? 'tasks' : 'points',
+      chartMode: rawSettings.chartMode === 'burnup' ? 'burnup' : 'burndown',
+      statusMap,
+      csvMapping: rawSettings.csvMapping && typeof rawSettings.csvMapping === 'object'
+        ? rawSettings.csvMapping : null,
     };
     const activeSprintId = sprints.some(s => s.id === raw.activeSprintId)
       ? raw.activeSprintId
@@ -442,6 +465,141 @@ const Store = (() => {
     save();
   }
 
+  /* ───────────── Импорт CSV-выгрузки из Jira ───────────── */
+
+  /** Заголовки колонок Jira (EN/RU) → наши поля. */
+  const CSV_FIELD_HINTS = {
+    key:      ['issue key', 'key', 'ключ', 'ключ задачи', 'номер', 'номер задачи'],
+    title:    ['summary', 'название', 'тема', 'заголовок'],
+    type:     ['issue type', 'issuetype', 'type', 'тип задачи', 'тип'],
+    status:   ['status', 'статус'],
+    points:   ['story points', 'story point estimate', 'оценка', 'story points estimate'],
+    assignee: ['assignee', 'исполнитель', 'ответственный'],
+  };
+  const CSV_FIELDS = Object.keys(CSV_FIELD_HINTS);
+  const CSV_FIELD_LABELS = {
+    key: 'Номер задачи', title: 'Название', type: 'Тип',
+    status: 'Статус', points: 'Story points', assignee: 'Исполнитель',
+  };
+
+  /** Заголовки колонок со спринтами — по ним считается, сколько спринтов едет задача. */
+  const CSV_SPRINT_HINTS = ['sprint', 'спринт'];
+
+  /** Определяет разделитель по первой строке: Jira отдаёт запятую, локали — точку с запятой. */
+  function detectDelimiter(text) {
+    const line = text.split(/\r?\n/)[0] || '';
+    const counts = [',', ';', '\t'].map(d => [d, line.split(d).length - 1]);
+    counts.sort((a, b) => b[1] - a[1]);
+    return counts[0][1] > 0 ? counts[0][0] : ',';
+  }
+
+  /**
+   * Разбор CSV по RFC 4180: кавычки, удвоенные кавычки внутри поля, переводы строк внутри значения.
+   * Возвращает массив строк-массивов (первая строка — заголовки).
+   */
+  function parseCSV(text, delimiter) {
+    let src = String(text).replace(/^\uFEFF/, '');   // Jira отдаёт файл с BOM
+    const delim = delimiter || detectDelimiter(src);
+
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (src[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else field += ch;
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === delim) {
+        row.push(field); field = '';
+      } else if (ch === '\n') {
+        row.push(field); rows.push(row); row = []; field = '';
+      } else if (ch !== '\r') {
+        field += ch;
+      }
+    }
+    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+
+    // Выкидываем полностью пустые строки — Jira любит хвостовой перевод строки
+    return rows.filter(r => r.some(cell => String(cell).trim() !== ''));
+  }
+
+  /** Угадывает соответствие «наше поле → индекс колонки» по заголовкам. */
+  function detectCsvMapping(headers) {
+    const norm = headers.map(h => normalizeWord(h));
+    const mapping = {};
+
+    CSV_FIELDS.forEach(field => {
+      const hints = CSV_FIELD_HINTS[field];
+      let idx = norm.findIndex(h => hints.includes(h));
+      if (idx === -1) {
+        // Jira называет кастомные поля так: «Custom field (Story Points)»
+        idx = norm.findIndex(h => hints.some(hint => h.includes(hint)));
+      }
+      mapping[field] = idx;
+    });
+    return mapping;
+  }
+
+  /** Индексы колонок со спринтами: их в выгрузке столько, в скольких спринтах побывала задача. */
+  function csvSprintColumns(headers) {
+    return headers
+      .map((h, i) => (CSV_SPRINT_HINTS.includes(normalizeWord(h)) ? i : -1))
+      .filter(i => i !== -1);
+  }
+
+  /**
+   * Превращает разобранный CSV в задачи по заданному маппингу.
+   * @returns {{items:Array, unknownStatuses:string[], skipped:number}}
+   */
+  function itemsFromCsv(rows, mapping, defaults = {}) {
+    if (!rows || rows.length < 2) return { items: [], unknownStatuses: [], skipped: 0 };
+
+    const headers = rows[0];
+    const sprintCols = csvSprintColumns(headers);
+    const defaultStatus = STATUS_IDS.includes(defaults.status) ? defaults.status : 'todo';
+    const cell = (row, idx) => (idx >= 0 && idx < row.length ? String(row[idx]).trim() : '');
+
+    const unknown = new Set();
+    let skipped = 0;
+
+    const items = rows.slice(1).map(row => {
+      const title = cell(row, mapping.title);
+      if (!title) { skipped++; return null; }
+
+      const rawStatus = cell(row, mapping.status);
+      // В список ручного сопоставления попадает всё, чего нет во встроенном словаре,
+      // даже если пользователь это уже сопоставил — иначе строка исчезала бы при выборе
+      if (rawStatus && !matchStatus(rawStatus)) unknown.add(rawStatus);
+      const status = resolveStatus(rawStatus);
+
+      const rawPoints = cell(row, mapping.points).replace(',', '.');
+      const points = rawPoints !== '' && !isNaN(parseFloat(rawPoints))
+        ? Math.max(0, parseFloat(rawPoints)) : null;
+
+      // Сколько спринтов задача уже прожила: колонок Sprint столько же, сколько спринтов
+      const sprintNames = sprintCols.map(i => cell(row, i)).filter(Boolean);
+      const carryCount = Math.max(0, sprintNames.length - 1);
+
+      return {
+        key: cell(row, mapping.key).toUpperCase(),
+        title,
+        type: matchType(cell(row, mapping.type)) || cell(row, mapping.type),
+        assignee: cell(row, mapping.assignee),
+        points,
+        status: status || defaultStatus,
+        unplanned: !!defaults.unplanned,
+        carryCount,
+        carriedFrom: carryCount ? { id: '', name: sprintNames[sprintNames.length - 2] } : null,
+      };
+    }).filter(Boolean);
+
+    return { items, unknownStatuses: [...unknown], skipped };
+  }
+
   /* ───────────── CRUD: задачи ───────────── */
 
   function makeTask({ key, title, type, points, status, unplanned, assignee }) {
@@ -485,10 +643,17 @@ const Store = (() => {
    * @returns {{added:number, updated:number, total:number}}
    */
   function addTasksBulk(sprintId, text, defaults = {}) {
-    const s = sprintById(sprintId);
-    if (!s) return { added: 0, updated: 0, total: 0 };
+    return addTasksFromItems(sprintId, parseBulkText(text, defaults));
+  }
 
-    const items = parseBulkText(text, defaults);
+  /**
+   * Добавляет пачку уже разобранных задач с обновлением по номеру.
+   * @returns {{added:number, updated:number, total:number}}
+   */
+  function addTasksFromItems(sprintId, items) {
+    const s = sprintById(sprintId);
+    if (!s || !items) return { added: 0, updated: 0, total: 0 };
+
     const created = [];
     let updated = 0;
 
@@ -501,10 +666,18 @@ const Store = (() => {
           points: item.points === null ? existing.points : item.points,
           status: item.status,
           unplanned: item.unplanned || existing.unplanned,
+          assignee: item.assignee || existing.assignee,
+          carryCount: item.carryCount || existing.carryCount,
+          carriedFrom: item.carriedFrom || existing.carriedFrom,
         });
         updated++;
       } else {
-        created.push(makeTask(item));
+        const task = makeTask(item);
+        if (item.carryCount) {
+          task.carryCount = item.carryCount;
+          task.carriedFrom = item.carriedFrom;
+        }
+        created.push(task);
       }
     });
 
@@ -661,7 +834,10 @@ const Store = (() => {
     STATUSES, STATUS_IDS, IN_FLIGHT_IDS, SPRINT_DEFAULT_DAYS, TYPE_ALIASES,
     DROP_REASONS, DROP_REASON_IDS, dropReasonById,
     // разбор массового ввода
-    parseBulkLine, parseBulkText, matchStatus, matchType,
+    parseBulkLine, parseBulkText, matchStatus, matchType, resolveStatus,
+    // импорт CSV из Jira
+    parseCSV, detectCsvMapping, itemsFromCsv, CSV_FIELDS, CSV_FIELD_LABELS,
+    normalizeStatusKey: normalizeWord,
     // утилиты дат
     uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange,
     // состояние
@@ -669,7 +845,7 @@ const Store = (() => {
     // спринты
     createSprint, updateSprint, archiveSprint, reopenSprint, deleteSprint, selectSprint,
     // задачи
-    addTask, addTasksBulk, updateTask, setTaskStatus, shiftTaskStatus, toggleTaskDropped, deleteTask,
+    addTask, addTasksBulk, addTasksFromItems, updateTask, setTaskStatus, shiftTaskStatus, toggleTaskDropped, deleteTask,
     carryCandidates, carryTasks,
     // данные
     exportJSON, parseImport, replaceState,

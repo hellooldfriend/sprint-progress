@@ -228,6 +228,8 @@ code {
   padding: 5px 11px; border-radius: 7px; font-size: 12.5px; font-weight: 500;
   color: var(--muted); transition: background var(--t), color var(--t);
 }
+.segmented--full { display: grid; grid-template-columns: 1fr 1fr; }
+.segmented--full button { padding: 7px 11px; }
 .segmented button:hover { color: var(--text); }
 .segmented button.is-active { background: var(--surface-3); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.4); }
 
@@ -598,6 +600,23 @@ input[type="checkbox"].carry-check {
   width: 16px; height: 16px; flex: none; cursor: pointer;
   accent-color: var(--accent);
 }
+
+.filedrop {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px; margin-bottom: 8px;
+  border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+  background: var(--surface); transition: border-color var(--t), background var(--t);
+}
+.filedrop.is-over { border-color: var(--accent); background: rgba(139, 92, 246, .07); }
+
+.map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(248px, 1fr)); gap: 8px; }
+.map-row { display: flex; align-items: center; gap: 10px; }
+.map-row__label {
+  flex: none; width: 108px; font-size: 12.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.map-row .input { flex: 1; min-width: 0; }
+.input--sm { padding: 6px 10px; font-size: 12.5px; }
 
 .bulk-preview {
   border: 1px solid var(--border); border-radius: var(--r-md);

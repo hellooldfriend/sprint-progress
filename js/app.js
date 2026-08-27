@@ -69,11 +69,11 @@
   /* ═════════════ Спринты ═════════════ */
 
   function fillStatusSelects() {
-    const options = Store.STATUSES.map(s => `<option value="${s.id}">${s.label}</option>`).join('');
+    // selected прописываем в разметке: иначе form.reset() скидывает значение на первую опцию
+    const options = Store.STATUSES
+      .map(s => `<option value="${s.id}" ${s.id === 'todo' ? 'selected' : ''}>${s.label}</option>`).join('');
     $('#taskStatusSelect').innerHTML = options;
     $('#bulkStatusSelect').innerHTML = options;
-    $('#taskStatusSelect').value = 'todo';
-    $('#bulkStatusSelect').value = 'todo';
     $('#taskTypes').innerHTML = Object.keys(Store.TYPE_ALIASES)
       .map(t => `<option value="${t}"></option>`).join('');
     $('#dropReasonSelect').innerHTML = Store.DROP_REASONS
@@ -247,20 +247,138 @@
     UI.toast('Задача удалена');
   });
 
-  /* ── Массовый ввод ── */
+  /* ── Импорт задач: строками или CSV из Jira ── */
+
+  let bulkMode = 'text';       // 'text' | 'csv'
+  let csvRows = null;          // разобранный CSV: [[заголовки], [строка], …]
+  let csvMapping = null;       // { key: индекс колонки, title: …, … }
+
+  function switchBulkMode(mode) {
+    bulkMode = mode;
+    $$('#bulkMode button').forEach(b => b.classList.toggle('is-active', b.dataset.bulkMode === mode));
+    $$('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== mode; });
+    renderBulkPreview();
+  }
+
+  $('#bulkMode').addEventListener('click', e => {
+    const btn = e.target.closest('[data-bulk-mode]');
+    if (btn) switchBulkMode(btn.dataset.bulkMode);
+  });
+
+  /* Чтение файла: кнопка и перетаскивание */
+  $('#csvPick').addEventListener('click', () => $('#csvFile').click());
+  $('#csvFile').addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (file) loadCsvText(await file.text());
+  });
+  ['dragover', 'dragenter'].forEach(ev => $('#csvDrop').addEventListener(ev, e => {
+    e.preventDefault();
+    $('#csvDrop').classList.add('is-over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => $('#csvDrop').addEventListener(ev, () => $('#csvDrop').classList.remove('is-over')));
+  $('#csvDrop').addEventListener('drop', async e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) loadCsvText(await file.text());
+  });
+
+  function loadCsvText(text) {
+    $('#bulkForm').csvText.value = text;
+    parseCsvInput();
+  }
+
+  /** Разбирает содержимое CSV и строит маппинг колонок. */
+  function parseCsvInput() {
+    const text = $('#bulkForm').csvText.value.trim();
+    csvRows = text ? Store.parseCSV(text) : null;
+
+    if (!csvRows || csvRows.length < 2) {
+      csvMapping = null;
+      $('#csvMappingBlock').hidden = true;
+      $('#statusMapBlock').hidden = true;
+      renderBulkPreview();
+      return;
+    }
+
+    const headers = csvRows[0];
+    csvMapping = Store.detectCsvMapping(headers);
+
+    // Если раскладку уже правили руками — восстанавливаем её по именам колонок
+    const saved = Store.get().settings.csvMapping;
+    if (saved) {
+      Store.CSV_FIELDS.forEach(field => {
+        const idx = headers.findIndex(h => h === saved[field]);
+        if (idx !== -1) csvMapping[field] = idx;
+      });
+    }
+
+    renderCsvMapping(headers);
+    renderBulkPreview();
+  }
+
+  function renderCsvMapping(headers) {
+    $('#csvMappingBlock').hidden = false;
+    $('#csvMapping').innerHTML = Store.CSV_FIELDS.map(field => `
+      <label class="map-row">
+        <span class="map-row__label">${Store.CSV_FIELD_LABELS[field]}</span>
+        <select class="input input--sm" data-csv-field="${field}">
+          <option value="-1">— нет —</option>
+          ${headers.map((h, i) =>
+            `<option value="${i}" ${csvMapping[field] === i ? 'selected' : ''}>${UI.esc(h || `Колонка ${i + 1}`)}</option>`).join('')}
+        </select>
+      </label>`).join('');
+  }
+
+  /** Собирает задачи из активного режима — общая точка для предпросмотра и импорта. */
+  function collectBulkItems() {
+    const form = $('#bulkForm');
+    const defaults = { status: form.status.value, unplanned: form.unplanned.value === '1' };
+
+    if (bulkMode === 'text') {
+      return { items: Store.parseBulkText(form.text.value, defaults), unknownStatuses: [], skipped: 0 };
+    }
+    if (!csvRows || !csvMapping) return { items: [], unknownStatuses: [], skipped: 0 };
+    return Store.itemsFromCsv(csvRows, csvMapping, defaults);
+  }
+
+  /** Нераспознанные статусы Jira — сопоставляются вручную и запоминаются. */
+  let statusMapSignature = '';
+
+  function renderStatusMap(unknown) {
+    const block = $('#statusMapBlock');
+    block.hidden = bulkMode !== 'csv' || !unknown.length;
+    if (block.hidden) { statusMapSignature = ''; return; }
+
+    // Пересобираем список, только если изменился набор статусов
+    const signature = unknown.join('|');
+    if (signature === statusMapSignature) return;
+    statusMapSignature = signature;
+
+    $('#statusMapList').innerHTML = unknown.map(name => `
+      <label class="map-row">
+        <span class="map-row__label" title="${UI.esc(name)}">${UI.esc(name)}</span>
+        <select class="input input--sm" data-status-from="${UI.esc(name)}">
+          ${Store.STATUSES.map(st => {
+            const current = Store.get().settings.statusMap[Store.normalizeStatusKey(name)] || $('#bulkForm').status.value;
+            return `<option value="${st.id}" ${st.id === current ? 'selected' : ''}>${st.label}</option>`;
+          }).join('')}
+        </select>
+      </label>`).join('');
+  }
 
   /** Живой предпросмотр разбора: видно, что именно приедет в спринт. */
   function renderBulkPreview() {
-    const form = $('#bulkForm');
     const box = $('#bulkPreview');
     const sprint = Store.activeSprint();
-    const items = Store.parseBulkText(form.text.value, {
-      status: form.status.value,
-      unplanned: form.unplanned.value === '1',
-    });
+    const { items, unknownStatuses, skipped } = collectBulkItems();
+
+    renderStatusMap(unknownStatuses);
 
     if (!items.length) {
-      box.innerHTML = `<div class="bulk-preview__empty">Вставьте строки — здесь появится разбор: номер, название, тип, статус и оценка</div>`;
+      box.innerHTML = `<div class="bulk-preview__empty">${bulkMode === 'csv'
+        ? 'Выберите файл или вставьте CSV — здесь появится разбор'
+        : 'Вставьте строки — здесь появится разбор: номер, название, тип, статус и оценка'}</div>`;
       $('#bulkSubmit').disabled = true;
       return;
     }
@@ -279,35 +397,59 @@
           ${item.type ? `<span class="tag">${UI.esc(item.type)}</span>` : ''}
           <span class="tag"><i class="dot ${st.dot}"></i>${st.label}</span>
           ${item.points !== null ? `<span class="tag tag--points">${Metrics.fmt(item.points)} SP</span>` : ''}
+          ${item.carryCount ? `<span class="tag ${item.carryCount >= 2 ? 'tag--longrun' : 'tag--carry'}">${item.carryCount + 1}-й спринт</span>` : ''}
           ${item.unplanned ? '<span class="tag tag--unplanned">Unplanned</span>' : ''}
           ${isUpdate ? '<span class="tag tag--update">обновит</span>' : ''}
         </div>`;
     }).join('');
 
-    const summary = `Распознано ${items.length} ${Metrics.plural(items.length, 'задача', 'задачи', 'задач')}` +
-      (willUpdate ? ` · ${willUpdate} обновит существующие` : '');
+    const summary = [
+      `Распознано ${items.length} ${Metrics.plural(items.length, 'задача', 'задачи', 'задач')}`,
+      willUpdate ? `${willUpdate} обновит существующие` : '',
+      skipped ? `${skipped} ${Metrics.plural(skipped, 'строка пропущена', 'строки пропущено', 'строк пропущено')} без названия` : '',
+    ].filter(Boolean).join(' · ');
 
     box.innerHTML = `<div class="bulk-preview__list">${rows}</div><div class="bulk-preview__sum">${summary}</div>`;
     $('#bulkSubmit').disabled = false;
   }
 
-  $('#bulkForm').addEventListener('input', renderBulkPreview);
-  $('#bulkForm').addEventListener('change', renderBulkPreview);
+  $('#bulkForm').addEventListener('input', e => {
+    if (e.target.name === 'csvText') parseCsvInput();
+    else renderBulkPreview();
+  });
+
+  $('#bulkForm').addEventListener('change', e => {
+    // Правка раскладки колонок — запоминаем по именам, чтобы пережила перезагрузку
+    if (e.target.dataset.csvField) {
+      csvMapping[e.target.dataset.csvField] = Number(e.target.value);
+      const headers = csvRows ? csvRows[0] : [];
+      const saved = {};
+      Store.CSV_FIELDS.forEach(f => { saved[f] = csvMapping[f] >= 0 ? headers[csvMapping[f]] : null; });
+      Store.setSetting('csvMapping', saved);
+    }
+    // Сопоставление статуса Jira с нашей колонкой — тоже запоминаем
+    if (e.target.dataset.statusFrom) {
+      const map = { ...Store.get().settings.statusMap };
+      map[Store.normalizeStatusKey(e.target.dataset.statusFrom)] = e.target.value;
+      Store.setSetting('statusMap', map);
+    }
+    renderBulkPreview();
+  });
 
   $('#bulkForm').addEventListener('submit', e => {
     e.preventDefault();
     const s = Store.activeSprint();
     if (!s) return;
-    const form = e.target;
-    const res = Store.addTasksBulk(s.id, form.text.value, {
-      status: form.status.value,
-      unplanned: form.unplanned.value === '1',
-    });
+    const { items } = collectBulkItems();
+    if (!items.length) { UI.toast('Нечего добавлять', 'err'); return; }
 
-    if (!res.total) { UI.toast('Нечего добавлять', 'err'); return; }
+    const res = Store.addTasksFromItems(s.id, items);
 
     closeModal('bulkModal');
-    form.reset();
+    $('#bulkForm').reset();
+    csvRows = null; csvMapping = null;
+    $('#csvMappingBlock').hidden = true;
+    $('#statusMapBlock').hidden = true;
     UI.render();
 
     const parts = [];
@@ -350,7 +492,7 @@
   });
   $('#btnBulkAdd').addEventListener('click', () => {
     if (!Store.activeSprint()) return UI.toast('Сначала создайте спринт', 'err');
-    renderBulkPreview();
+    switchBulkMode('text');
     openModal('bulkModal');
   });
 

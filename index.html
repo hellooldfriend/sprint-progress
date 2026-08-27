@@ -253,27 +253,69 @@
   <div class="modal__backdrop" data-close></div>
   <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="bulkModalTitle">
     <header class="modal__head">
-      <h2 id="bulkModalTitle">Массовый ввод задач</h2>
+      <h2 id="bulkModalTitle">Импорт задач</h2>
       <button class="icon-btn" data-close aria-label="Закрыть">
         <svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
     </header>
     <form class="modal__body form" id="bulkForm">
-      <label class="field">
-        <span class="field__label">Одна задача — одна строка</span>
-        <textarea class="input input--area" name="text" rows="8" spellcheck="false"
+
+      <div class="segmented segmented--full" id="bulkMode">
+        <button type="button" data-bulk-mode="text" class="is-active">Строками</button>
+        <button type="button" data-bulk-mode="csv">CSV из Jira</button>
+      </div>
+
+      <!-- ── Режим: строки ── -->
+      <div data-panel="text">
+        <label class="field">
+          <span class="field__label">Одна задача — одна строка</span>
+          <textarea class="input input--area" name="text" rows="7" spellcheck="false"
 placeholder="DEV-123 &quot;Поменять название&quot; Задача Готово 3
 DEV-124 &quot;Удалить логи&quot; Задача &quot;В процессе&quot; 5
 DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></textarea>
-      </label>
+        </label>
+        <p class="hint">
+          Порядок полей: <code>номер</code> <code>"название"</code> <code>тип</code> <code>статус</code> <code>story points</code>.
+          Всё, кроме названия, можно пропустить. Название и статус из двух слов — в кавычках.
+          <code>!</code> в начале строки помечает задачу как <span class="txt-amber">Unplanned</span>.
+        </p>
+      </div>
 
-      <p class="hint">
-        Порядок полей: <code>номер</code> <code>"название"</code> <code>тип</code> <code>статус</code> <code>story points</code>.
-        Всё, кроме названия, можно пропустить — недостающее возьмётся из полей ниже.
-        Название и статус из двух слов берите в кавычки: <code>"В процессе"</code>.
-        <code>!</code> в начале строки помечает задачу как <span class="txt-amber">Unplanned</span>.
-        Строка с уже существующим номером обновит задачу, а не создаст дубль.
-      </p>
+      <!-- ── Режим: CSV из Jira ── -->
+      <div data-panel="csv" hidden>
+        <div class="field">
+          <span class="field__label">
+            Файл выгрузки
+            <em>— в Jira: поиск по JQL → Export → Export CSV (current fields)</em>
+          </span>
+          <div class="filedrop" id="csvDrop">
+            <input type="file" id="csvFile" accept=".csv,text/csv,text/plain" hidden />
+            <button type="button" class="btn btn--ghost btn--sm" id="csvPick">Выбрать CSV-файл</button>
+            <span class="hint">или перетащите файл сюда / вставьте содержимое ниже</span>
+          </div>
+          <textarea class="input input--area" name="csvText" rows="4" spellcheck="false"
+                    placeholder="Summary,Issue key,Issue Type,Status,Custom field (Story Points),Sprint&#10;&quot;Поменять название&quot;,DEV-123,Task,Done,3,Спринт 24"></textarea>
+        </div>
+
+        <div class="field" id="csvMappingBlock" hidden>
+          <span class="field__label">Колонки <em>— распознаны автоматически, можно поправить</em></span>
+          <div class="map-grid" id="csvMapping"></div>
+        </div>
+
+        <div class="field" id="statusMapBlock" hidden>
+          <span class="field__label">
+            Статусы Jira, которых нет в словаре
+            <em>— сопоставьте один раз, дальше запомнится</em>
+          </span>
+          <div class="map-grid" id="statusMapList"></div>
+        </div>
+
+        <p class="hint">
+          Задачи с уже существующим номером обновятся, а не задвоятся — выгрузку можно перезаливать.
+          Колонки <code>Sprint</code> в выгрузке считаются автоматически: если задача была в нескольких
+          спринтах, она приедет со счётчиком переносов.
+        </p>
+      </div>
 
       <div class="field">
         <span class="field__label">Предпросмотр</span>
@@ -282,7 +324,7 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
 
       <div class="grid-2">
         <label class="field">
-          <span class="field__label">Статус, если не указан в строке</span>
+          <span class="field__label">Статус, если не указан</span>
           <select class="input" name="status" id="bulkStatusSelect"></select>
         </label>
         <label class="field">
