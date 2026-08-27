@@ -43,9 +43,10 @@ const Store = (() => {
    * Снятие — это решение о скоупе, а не стадия работы, поэтому это флаг, а не колонка.
    */
   const DROP_REASONS = [
-    { id: 'carry',     label: 'Перенос в следующий спринт', short: 'Перенос'  },
-    { id: 'cancelled', label: 'Отменили',                   short: 'Отменена' },
-    { id: 'blocked',   label: 'Заблокировано',              short: 'Блок'     },
+    // short — для тега на карточке, verb — для связного текста в сводке
+    { id: 'carry',     label: 'Перенос в следующий спринт', short: 'Перенос',  verb: 'перенесено' },
+    { id: 'cancelled', label: 'Отменили',                   short: 'Отменена', verb: 'отменено' },
+    { id: 'blocked',   label: 'Заблокировано',              short: 'Блок',     verb: 'заблокировано' },
   ];
   const DROP_REASON_IDS = DROP_REASONS.map(r => r.id);
   const dropReasonById = id => DROP_REASONS.find(r => r.id === id) || DROP_REASONS[0];

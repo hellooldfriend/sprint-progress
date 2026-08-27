@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const SOURCES = ['js/store.js', 'js/metrics.js', 'js/charts.js'];
+const SOURCES = ['js/store.js', 'js/metrics.js', 'js/charts.js', 'js/summary.js'];
 
 /** Минимальная замена localStorage: обычный объект в памяти. */
 function memoryStorage() {
@@ -37,7 +37,7 @@ function buildFactorySource() {
   factorySource =
     '(function (localStorage, console, document, URL, Blob) {\n' +
     parts.join('\n') +
-    '\nreturn { Store, Metrics, Charts };\n})';
+    '\nreturn { Store, Metrics, Charts, Summary };\n})';
   return factorySource;
 }
 

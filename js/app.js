@@ -833,6 +833,61 @@
     if (col.dataset.status === 'done') UI.toast('Задача закрыта 🎉', 'ok');
   });
 
+  /* ═════════════ Сводка по спринту ═════════════ */
+
+  function renderSummary() {
+    const sprint = Store.activeSprint();
+    if (!sprint) return;
+    $('#summaryText').value = Summary.forSprint(sprint, { withTasks: $('#summaryWithTasks').checked });
+  }
+
+  $('#btnSummary').addEventListener('click', () => {
+    if (!Store.activeSprint()) return UI.toast('Сначала создайте спринт', 'err');
+    renderSummary();
+    openModal('summaryModal');
+    // Текст сразу выделен: можно копировать привычным Cmd+C, не целясь в кнопку
+    setTimeout(() => $('#summaryText').select(), 40);
+  });
+
+  $('#summaryWithTasks').addEventListener('change', renderSummary);
+
+  /**
+   * Копирование в буфер. Из file:// страница не является secure context,
+   * и navigator.clipboard там недоступен — поэтому нужен запасной путь.
+   */
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[copy] clipboard API недоступен, пробуем execCommand:', err);
+    }
+
+    const helper = document.createElement('textarea');
+    helper.value = text;
+    helper.setAttribute('readonly', '');
+    helper.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(helper);
+    helper.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    helper.remove();
+    return ok;
+  }
+
+  $('#btnCopySummary').addEventListener('click', async () => {
+    const ok = await copyToClipboard($('#summaryText').value);
+    if (ok) {
+      UI.toast('Сводка скопирована', 'ok');
+      closeModal('summaryModal');
+    } else {
+      $('#summaryText').select();
+      UI.toast('Браузер не дал доступ к буферу — текст выделен, нажмите Cmd/Ctrl+C', 'err');
+    }
+  });
+
   /* ═════════════ Экспорт / импорт ═════════════ */
 
   $('#btnExport').addEventListener('click', () => {
@@ -880,6 +935,8 @@
     if (e.key === 'n' || e.key === 'т') {           // новая задача
       const s = Store.activeSprint();
       if (s && s.status !== 'archived') { e.preventDefault(); openTaskModal(null); }
+    } else if (e.key === 's' || e.key === 'ы') {    // сводка по спринту
+      if (Store.activeSprint()) { e.preventDefault(); $('#btnSummary').click(); }
     } else if (e.key === '/') {                     // фокус в поиск
       const input = $('#taskSearch');
       if (input) { e.preventDefault(); input.focus(); }
