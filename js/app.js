@@ -399,6 +399,7 @@
           ${item.points !== null ? `<span class="tag tag--points">${Metrics.fmt(item.points)} SP</span>` : ''}
           ${item.carryCount ? `<span class="tag ${item.carryCount >= 2 ? 'tag--longrun' : 'tag--carry'}">${item.carryCount + 1}-й спринт</span>` : ''}
           ${item.unplanned ? '<span class="tag tag--unplanned">Unplanned</span>' : ''}
+          ${item.dropped ? `<span class="tag tag--dropped">снято · ${Store.dropReasonById(item.dropReason).verb}</span>` : ''}
           ${isUpdate ? '<span class="tag tag--update">обновит</span>' : ''}
         </div>`;
     }).join('');

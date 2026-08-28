@@ -61,12 +61,14 @@ const Store = (() => {
     backlog:  ['backlog', 'бэклог', 'беклог', 'бэклог задач'],
     todo:     ['to do', 'todo', 'to-do', 'open', 'new', 'к выполнению', 'сделать', 'запланировано',
                'открыто', 'открыта', 'новая', 'новый', 'ожидает'],
-    progress: ['in progress', 'inprogress', 'in-progress', 'doing', 'wip',
-               'в процессе', 'в работе', 'в разработке', 'делается'],
+    progress: ['in progress', 'inprogress', 'in-progress', 'doing', 'wip', 'development', 'in development',
+               'в процессе', 'в работе', 'в разработке', 'разработка', 'делается'],
     review:   ['review', 'in review', 'code review', 'cr',
                'ревью', 'на ревью', 'код-ревью', 'на проверке', 'проверка'],
-    ready_to_test: ['ready to test', 'ready for test', 'ready to qa', 'ready for qa', 'rft',
-                    'готово к тестированию', 'готова к тестированию', 'к тестированию', 'можно тестировать'],
+    ready_to_test: ['ready to test', 'ready for test', 'ready for testing', 'ready to testing',
+                    'ready to qa', 'ready for qa', 'rft',
+                    'готово к тестированию', 'готова к тестированию', 'к тестированию',
+                    'готово к тесту', 'можно тестировать'],
     testing:  ['testing', 'in testing', 'in test', 'qa', 'test',
                'тестирование', 'на тестировании', 'в тестировании', 'тестируется', 'на qa'],
     deploy:   ['deploy', 'deployment', 'deploying', 'ready to deploy', 'to deploy', 'release', 'staging',
@@ -74,6 +76,29 @@ const Store = (() => {
     done:     ['done', 'closed', 'resolved', 'complete', 'completed',
                'готово', 'готова', 'выполнено', 'выполнена', 'закрыто', 'закрыта', 'завершено', 'сделано'],
   };
+
+  /**
+   * Статусы трекера, которые не являются стадией работы: задача не движется по доске,
+   * а снята с неё решением команды. В модели это флаг «Не закроем» с причиной,
+   * поэтому в колонку они не превращаются — иначе Rejected копился бы в remaining work,
+   * а попав в Done, ещё и надувал бы velocity.
+   */
+  const DROP_STATUS_ALIASES = {
+    cancelled: ['rejected', 'reject', 'declined', 'cancelled', 'canceled', 'won\'t do', 'wont do', 'wont fix',
+                'отклонено', 'отклонена', 'отменено', 'отменена', 'не будет делаться'],
+    blocked:   ['hold', 'on hold', 'blocked', 'is blocked', 'paused', 'pending',
+                'заблокировано', 'заблокирована', 'на паузе', 'приостановлено', 'ожидание'],
+  };
+
+  /** Строка → причина снятия ('cancelled' | 'blocked') или null. */
+  function matchDropStatus(str) {
+    const nrm = normalizeWord(str);
+    if (!nrm) return null;
+    for (const [reason, aliases] of Object.entries(DROP_STATUS_ALIASES)) {
+      if (aliases.includes(nrm)) return reason;
+    }
+    return null;
+  }
 
   /** Типы задач: разные написания → одно каноническое имя. */
   const TYPE_ALIASES = {
@@ -211,9 +236,14 @@ const Store = (() => {
 
     // 3) Статус — с конца: до трёх токенов подряд («в процессе» без кавычек — это два токена)
     let status = null;
-    for (let n = Math.min(3, tokens.length - 1); n >= 1 && !status; n--) {
-      const found = matchStatus(tokens.slice(-n).map(t => t.v).join(' '));
-      if (found) { status = found; tokens.splice(-n); }
+    let dropReason = null;
+    for (let n = Math.min(3, tokens.length - 1); n >= 1 && !status && !dropReason; n--) {
+      const candidate = tokens.slice(-n).map(t => t.v).join(' ');
+      const found = matchStatus(candidate);
+      if (found) { status = found; tokens.splice(-n); continue; }
+      // Rejected / Hold — не колонка, а снятие со спринта
+      const drop = matchDropStatus(candidate);
+      if (drop) { dropReason = drop; status = 'backlog'; tokens.splice(-n); }
     }
 
     // 4) Тип — тоже с конца, по словарю
@@ -232,7 +262,7 @@ const Store = (() => {
     const title = tokens.map(t => t.v).join(' ').trim();
     if (!title) return null;
 
-    return { key, title, type, status, points, unplanned };
+    return { key, title, type, status, points, unplanned, dropped: !!dropReason, dropReason };
   }
 
   /**
@@ -619,10 +649,11 @@ const Store = (() => {
       if (!title) { skipped++; return null; }
 
       const rawStatus = cell(row, mapping.status);
+      const dropReason = matchDropStatus(rawStatus);
       // В список ручного сопоставления попадает всё, чего нет во встроенном словаре,
       // даже если пользователь это уже сопоставил — иначе строка исчезала бы при выборе
-      if (rawStatus && !matchStatus(rawStatus)) unknown.add(rawStatus);
-      const status = resolveStatus(rawStatus);
+      if (rawStatus && !matchStatus(rawStatus) && !dropReason) unknown.add(rawStatus);
+      const status = dropReason ? 'backlog' : resolveStatus(rawStatus);
 
       const rawPoints = cell(row, mapping.points).replace(',', '.');
       const points = rawPoints !== '' && !isNaN(parseFloat(rawPoints))
@@ -641,6 +672,8 @@ const Store = (() => {
         points,
         status: status || defaultStatus,
         unplanned: !!defaults.unplanned,
+        dropped: !!dropReason,
+        dropReason,
         carryCount,
         carriedFrom: carryCount ? { id: '', name: sprintNames[sprintNames.length - 2] } : null,
       };
@@ -721,6 +754,9 @@ const Store = (() => {
           carryCount: item.carryCount || existing.carryCount,
           carriedFrom: item.carriedFrom || existing.carriedFrom,
           ...(item.doneAt ? { doneAt: item.doneAt } : {}),
+          // Снятие ставим, только если трекер сказал это прямо (Rejected / Hold).
+          // Обратно флаг импорт не снимает — это остаётся решением тимлида.
+          ...(item.dropped ? { dropped: true, dropReason: item.dropReason } : {}),
         });
         updated++;
       } else {
@@ -731,6 +767,11 @@ const Store = (() => {
         }
         // Дата закрытия из выгрузки — чтобы burn-down знал реальный день, а не момент импорта
         if (item.doneAt && task.status === 'done') task.doneAt = item.doneAt;
+        if (item.dropped) {
+          task.dropped = true;
+          task.dropReason = item.dropReason || 'carry';
+          task.droppedAt = new Date().toISOString();
+        }
         created.push(task);
       }
     });
@@ -895,7 +936,7 @@ const Store = (() => {
     STATUSES, STATUS_IDS, IN_FLIGHT_IDS, SPRINT_DEFAULT_DAYS, TYPE_ALIASES,
     DROP_REASONS, DROP_REASON_IDS, dropReasonById,
     // разбор массового ввода
-    parseBulkLine, parseBulkText, matchStatus, matchType, resolveStatus,
+    parseBulkLine, parseBulkText, matchStatus, matchType, matchDropStatus, resolveStatus,
     // импорт CSV из Jira
     parseCSV, detectCsvMapping, itemsFromCsv, parseDateTime, CSV_FIELDS, CSV_FIELD_LABELS,
     normalizeStatusKey: normalizeWord,

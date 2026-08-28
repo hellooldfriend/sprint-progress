@@ -9,7 +9,7 @@ const parse = line => Store.parseBulkLine(line);
 test('полная форма разбирается по всем пяти полям', () => {
   assert.deepEqual(parse('DEV-123 "Поменять название" Задача Готово 3'), {
     key: 'DEV-123', title: 'Поменять название', type: 'Задача',
-    status: 'done', points: 3, unplanned: false,
+    status: 'done', points: 3, unplanned: false, dropped: false, dropReason: null,
   });
 });
 
@@ -27,7 +27,8 @@ test('статус из трёх слов без кавычек', () => {
 
 test('любое поле кроме названия можно опустить', () => {
   assert.deepEqual(parse('Просто название'), {
-    key: '', title: 'Просто название', type: '', status: null, points: null, unplanned: false,
+    key: '', title: 'Просто название', type: '', status: null, points: null,
+    unplanned: false, dropped: false, dropReason: null,
   });
   const noStatus = parse('DEV-55 "Рефакторинг" 8');
   assert.equal(noStatus.key, 'DEV-55');
@@ -119,6 +120,46 @@ test('тестирование относится к Testing, а не к Review'
   assert.equal(Store.matchStatus('тестирование'), 'testing');
   assert.equal(Store.matchStatus('на тестировании'), 'testing');
   assert.equal(Store.matchStatus('ревью'), 'review');
+});
+
+test('реальный набор статусов из Jira распознаётся без ручного маппинга', () => {
+  const { Store } = loadApp();
+  const columns = {
+    'Deploy': 'deploy', 'Готово': 'done', 'Development': 'progress',
+    'Ready For Testing': 'ready_to_test', 'Review': 'review', 'Сделать': 'todo',
+  };
+  for (const [input, expected] of Object.entries(columns)) {
+    assert.equal(Store.matchStatus(input), expected, `${input} → ${expected}`);
+  }
+  // Rejected и Hold — не стадии работы, а решения по задаче
+  assert.equal(Store.matchStatus('Rejected'), null);
+  assert.equal(Store.matchDropStatus('Rejected'), 'cancelled');
+  assert.equal(Store.matchStatus('Hold'), null);
+  assert.equal(Store.matchDropStatus('Hold'), 'blocked');
+});
+
+test('статусы-решения имеют синонимы на обоих языках', () => {
+  const { Store } = loadApp();
+  ['rejected', "won't do", 'Отклонена', 'ОТМЕНЕНО', 'declined']
+    .forEach(v => assert.equal(Store.matchDropStatus(v), 'cancelled', v));
+  ['hold', 'On Hold', 'blocked', 'Заблокировано', 'на паузе']
+    .forEach(v => assert.equal(Store.matchDropStatus(v), 'blocked', v));
+  assert.equal(Store.matchDropStatus('Готово'), null, 'обычная колонка снятием не считается');
+});
+
+test('в массовом вводе Rejected снимает задачу со спринта', () => {
+  const { Store } = loadApp();
+  const rejected = Store.parseBulkLine('DEV-9 "Отклонённая" Задача Rejected 5');
+  assert.equal(rejected.dropped, true);
+  assert.equal(rejected.dropReason, 'cancelled');
+  assert.equal(rejected.status, 'backlog', 'колонки для снятого нет — кладём в бэклог');
+
+  const hold = Store.parseBulkLine('DEV-10 "Подвисла" Задача Hold 3');
+  assert.equal(hold.dropReason, 'blocked');
+
+  const normal = Store.parseBulkLine('DEV-11 "Обычная" Задача Готово 2');
+  assert.equal(normal.dropped, false);
+  assert.equal(normal.dropReason, null);
 });
 
 test('незнакомый статус — null, а не случайная колонка', () => {

@@ -1,7 +1,7 @@
 /* Импорт CSV-выгрузки из Jira */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadApp } = require('./helpers/load');
+const { loadApp, makeSprint } = require('./helpers/load');
 
 const BOM = '﻿';
 const HEAD = 'Summary,Issue key,Issue Type,Status,Assignee,Custom field (Story Points),Resolved';
@@ -123,6 +123,65 @@ test('дата закрытия берётся из колонки Resolved то
 
   assert.equal(Store.toISODate(new Date(items[0].doneAt)), '2026-08-22');
   assert.equal(items[1].doneAt, null, 'незакрытой задаче дата закрытия не нужна');
+});
+
+test('весь набор статусов команды разбирается из CSV без ручного маппинга', () => {
+  const { Store } = loadApp();
+  const rows = Store.parseCSV([
+    'Summary,Issue key,Status',
+    'Раз,DEV-1,Development', 'Два,DEV-2,Ready For Testing', 'Три,DEV-3,Rejected',
+    'Четыре,DEV-4,Hold', 'Пять,DEV-5,Готово', 'Шесть,DEV-6,Deploy',
+    'Семь,DEV-7,Review', 'Восемь,DEV-8,Сделать',
+  ].join('\n'));
+  const res = Store.itemsFromCsv(rows, Store.detectCsvMapping(rows[0]), { status: 'todo' });
+
+  assert.deepEqual(res.unknownStatuses, [], 'сопоставлять руками нечего');
+  assert.deepEqual(res.items.map(i => i.status),
+    ['progress', 'ready_to_test', 'backlog', 'backlog', 'done', 'deploy', 'review', 'todo']);
+  assert.deepEqual(res.items.filter(i => i.dropped).map(i => [i.key, i.dropReason]),
+    [['DEV-3', 'cancelled'], ['DEV-4', 'blocked']]);
+});
+
+test('Rejected и Hold уходят из remaining work, а не копятся в нём', () => {
+  const app = loadApp();
+  const { Store, Metrics } = app;
+  const sprint = makeSprint(app, { tasks: [] });
+  const rows = Store.parseCSV([
+    'Summary,Issue key,Status,Custom field (Story Points)',
+    'Работаем,DEV-1,Development,8',
+    'Отклонили,DEV-2,Rejected,5',
+    'Подвисла,DEV-3,Hold,2',
+    'Закрыта,DEV-4,Готово,5',
+  ].join('\n'));
+  Store.addTasksFromItems(sprint.id, Store.itemsFromCsv(rows, Store.detectCsvMapping(rows[0]), {}).items);
+
+  const m = Metrics.sprintMetrics(Store.sprintById(sprint.id));
+  assert.equal(m.totalPoints, 20, 'объём обязательства не меняется');
+  assert.equal(m.donePoints, 5);
+  assert.equal(m.droppedPoints, 7, 'Rejected и Hold сняты');
+  assert.equal(m.remainingPoints, 8, 'в остатке только то, что реально делается');
+  assert.deepEqual(m.dropByReason.map(r => [r.id, r.points]), [['cancelled', 5], ['blocked', 2]]);
+});
+
+test('повторный импорт ставит снятие, но обратно его не снимает', () => {
+  const app = loadApp();
+  const { Store } = app;
+  const sprint = makeSprint(app, { tasks: [] });
+  const load = status => {
+    const rows = Store.parseCSV(`Summary,Issue key,Status\nЗадача,DEV-1,${status}`);
+    Store.addTasksFromItems(sprint.id, Store.itemsFromCsv(rows, Store.detectCsvMapping(rows[0]), {}).items);
+    return Store.sprintById(sprint.id).tasks[0];
+  };
+
+  assert.equal(load('Development').dropped, false);
+  const rejected = load('Rejected');
+  assert.equal(rejected.dropped, true, 'трекер сказал прямо — снимаем');
+  assert.equal(rejected.dropReason, 'cancelled');
+
+  // Вернулась в работу в Jira: колонка обновится, но решение «не закроем» останется за тимлидом
+  const back = load('Development');
+  assert.equal(back.status, 'progress');
+  assert.equal(back.dropped, true, 'импорт не снимает локальный флаг молча');
 });
 
 test('itemsFromCsv не падает на пустом и одном заголовке', () => {
