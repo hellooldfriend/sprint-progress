@@ -37,6 +37,32 @@ const Metrics = (() => {
     // «В работе» — всё, что начали, но ещё не закрыли: от In Progress до Deploy
     const inProgress = tasks.filter(t => Store.IN_FLIGHT_IDS.includes(t.status) && !t.dropped);
 
+    /**
+     * Кто работал над спринтом. Имена приходят из поля «Исполнитель» выгрузки,
+     * поэтому сравниваем без учёта регистра и лишних пробелов, а показываем
+     * то написание, которое встретилось первым.
+     */
+    const people = new Map();
+    tasks.forEach(t => {
+      const name = String(t.assignee || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      const entry = people.get(key) || { name, tasks: 0, points: 0, doneTasks: 0, donePoints: 0 };
+      // Из разных написаний одного имени показываем самое опрятное: «Марат» лучше «МАРАТ» и «марат»
+      if (nameScore(name) > nameScore(entry.name)) entry.name = name;
+      entry.tasks++;
+      entry.points += Number(t.points) || 0;
+      if (t.status === 'done') {
+        entry.doneTasks++;
+        entry.donePoints += Number(t.points) || 0;
+      }
+      people.set(key, entry);
+    });
+    const byAssignee = [...people.values()].sort((a, b) =>
+      b.points - a.points || b.tasks - a.tasks || a.name.localeCompare(b.name, 'ru'));
+
+    const unassigned = tasks.filter(t => !String(t.assignee || '').trim());
+
     const byStatus = {};
     Store.STATUS_IDS.forEach(id => {
       const list = tasks.filter(t => t.status === id);
@@ -47,6 +73,19 @@ const Metrics = (() => {
     const totalPoints = sum(tasks, 'points');
     const doneTasks = done.length;
     const donePoints = sum(done, 'points');
+
+    /**
+     * Ёмкость и факт в человеко-днях. Заполняются вручную и только если команда
+     * этого хочет — все производные метрики ниже становятся null, если данных нет.
+     */
+    const capacity = sprint.capacity || null;
+    const spent = sprint.spent || null;
+    // Сколько взяли относительно ёмкости: 1.38 значит перебор на 38%
+    const commitRatio = capacity ? totalPoints / capacity : null;
+    // Фокус-фактор: какая доля ёмкости реально ушла в задачи спринта, а не в митинги и поддержку
+    const focusFactor = capacity && spent ? spent / capacity : null;
+    // Точность оценки: сколько SP закрывали на один потраченный человеко-день
+    const estimateAccuracy = spent ? donePoints / spent : null;
 
     // Прогресс по времени: сколько дней спринта уже прошло
     const totalDays = Store.diffDays(sprint.startDate, sprint.endDate) + 1;
@@ -117,11 +156,26 @@ const Metrics = (() => {
       unplannedShareTasks: pct(unplanned.length, totalTasks),
       unplannedSharePoints: pct(sum(unplanned, 'points'), totalPoints),
       velocity: donePoints,           // velocity спринта = SP в Done
+      capacity, spent, commitRatio, focusFactor, estimateAccuracy,
       byStatus,
+      participants: byAssignee.length,
+      byAssignee,
+      unassignedTasks: unassigned.length,
+      unassignedPoints: sum(unassigned, 'points'),
       totalDays, elapsedDays, daysLeft, timePct,
       paceTasks, pacePoints, needTasks, needPoints,
       isEmpty: totalTasks === 0,
     };
+  }
+
+  /** Насколько «нормально» выглядит написание имени: 2 — Марат, 1 — МАРАТ, 0 — марат. */
+  function nameScore(name) {
+    const first = name[0] || '';
+    if (first !== first.toLowerCase()) {
+      const rest = name.slice(1);
+      return rest === rest.toUpperCase() && rest !== rest.toLowerCase() ? 1 : 2;
+    }
+    return 0;
   }
 
   /** Значения метрик в текущей единице измерения — чтобы UI не ветвился. */

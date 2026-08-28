@@ -267,6 +267,15 @@ const UI = (() => {
             spark: 100 - v.pct, sparkColor: 'var(--blue)',
             foot: `В работе — от In Progress до Deploy: ${Metrics.fmt(v.inProgress)} ${v.unit}`,
           })}
+      ${m.capacity ? card({
+        dot: 'dot--muted', title: 'Ёмкость', value: Metrics.fmt(m.capacity), unit: 'п/д',
+        foot: capacityFoot(m, archived),
+      }) : ''}
+      ${m.participants > 0 ? card({
+        dot: 'dot--muted', title: 'Участники', value: String(m.participants),
+        unit: Metrics.plural(m.participants, 'человек', 'человека', 'человек'),
+        foot: peopleFoot(m),
+      }) : ''}
       ${v.carried > 0 ? card({
         dot: 'dot--muted', title: 'Перенос из прошлого', value: Metrics.fmt(v.carried), unit: v.unit,
         foot: m.longRunners > 0
@@ -288,6 +297,38 @@ const UI = (() => {
             : 'Время спринта вышло',
       })}
     </section>`;
+  }
+
+  /**
+   * Подпись к ёмкости. До закрытия важен перебор на планировании,
+   * после — куда ушла ёмкость и насколько точны были оценки.
+   */
+  function capacityFoot(m, archived) {
+    if (archived) {
+      if (!m.spent) return 'Факт не заполнен при закрытии';
+      return `Потрачено ${Metrics.fmt(m.spent)} п/д · фокус ${Math.round(m.focusFactor * 100)}% · ` +
+             `на 1 п/д закрывали ${Metrics.fmt(m.estimateAccuracy)} SP`;
+    }
+    const over = Math.round((m.commitRatio - 1) * 100);
+    const verdict = over > 5 ? `перебор на ${over}%`
+      : over < -5 ? `запас ${Math.abs(over)}%`
+      : 'ровно по ёмкости';
+    return `Взято ${Metrics.fmt(m.totalPoints)} SP — ${verdict}`;
+  }
+
+  /** «Марат Ахметов» → «Марат А.»: в карточке метрики полные имена не помещаются. */
+  function shortName(name) {
+    const parts = String(name).trim().split(/\s+/);
+    return parts.length > 1 ? `${parts[0]} ${parts[1][0]}.` : parts[0];
+  }
+
+  /** Кто именно работал: имена, а если есть — напоминание про задачи без исполнителя. */
+  function peopleFoot(m) {
+    const names = m.byAssignee.map(p => shortName(p.name));
+    const shown = names.slice(0, 3).join(', ') + (names.length > 3 ? ` и ещё ${names.length - 3}` : '');
+    return m.unassignedTasks
+      ? `${shown} · без исполнителя ${m.unassignedTasks} ${Metrics.plural(m.unassignedTasks, 'задача', 'задачи', 'задач')}`
+      : shown;
   }
 
   /* ── Planned vs Unplanned ── */
@@ -482,6 +523,11 @@ const UI = (() => {
     const avgUnplanned = avg(base, r => (mode() === 'points' ? r.m.unplannedSharePoints : r.m.unplannedShareTasks));
     const avgDropped = avg(base, r => (mode() === 'points' ? r.m.droppedPoints : r.m.droppedTasks));
 
+    // Точность считаем только по спринтам, где заполнен факт
+    const measured = rows.filter(r => r.m.estimateAccuracy !== null);
+    const avgAccuracy = avg(measured, r => r.m.estimateAccuracy);
+    const lastCapacity = (rows.find(r => r.s.capacity) || { s: {} }).s.capacity || null;
+
     body.innerHTML = `
       <section class="metrics">
         <article class="metric">
@@ -504,6 +550,12 @@ const UI = (() => {
           <div class="metric__value"><b>${Math.round(avgUnplanned)}</b><span>%</span></div>
           <div class="metric__foot">Сколько объёма съедает внеплановая работа</div>
         </article>
+        ${measured.length ? `
+        <article class="metric">
+          <div class="metric__head"><span class="dot dot--muted"></span>Точность оценки</div>
+          <div class="metric__value"><b>${Metrics.fmt(avgAccuracy)}</b><span>SP на человеко-день</span></div>
+          <div class="metric__foot">${accuracyHint(avgAccuracy, lastCapacity, measured.length)}</div>
+        </article>` : ''}
         <article class="metric">
           <div class="metric__head"><span class="dot dot--muted"></span>Снимаем со спринта</div>
           <div class="metric__value"><b>${Metrics.fmt(avgDropped)}</b><span>${mode() === 'points' ? 'SP' : 'задач'} за спринт</span></div>
@@ -523,6 +575,13 @@ const UI = (() => {
           <tbody>${rows.map(({ s, m }) => historyRow(s, m)).join('')}</tbody>
         </table>
       </div>`;
+  }
+
+  /** Из точности оценки следует конкретная рекомендация на планирование. */
+  function accuracyHint(accuracy, capacity, sprints) {
+    const base = `По ${sprints} ${Metrics.plural(sprints, 'спринту', 'спринтам', 'спринтам')} с заполненным фактом`;
+    if (!capacity) return base;
+    return `${base}. При ёмкости ${Metrics.fmt(capacity)} п/д берите не больше ~${Metrics.fmt(accuracy * capacity)} SP`;
   }
 
   function historyRow(s, m) {

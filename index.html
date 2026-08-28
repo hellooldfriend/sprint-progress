@@ -173,6 +173,11 @@
           <input class="input" type="date" name="endDate" required />
         </label>
       </div>
+      <label class="field">
+        <span class="field__label">Ёмкость команды, человеко-дней <em>— опционально</em></span>
+        <input class="input" type="number" name="capacity" min="0" max="9999" step="0.5"
+               placeholder="Например: 5 человек × 10 рабочих дней = 50" autocomplete="off" />
+      </label>
       <p class="hint" id="sprintDurationHint">Длительность по умолчанию — 14 дней.</p>
       <footer class="modal__foot">
         <button type="button" class="btn btn--ghost" data-close>Отмена</button>
@@ -371,6 +376,14 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
           <span class="hint" id="carrySummary"></span>
         </div>
       </div>
+
+      <label class="field" id="spentField">
+        <span class="field__label">
+          Фактически потрачено, человеко-дней
+          <em>— сколько реально ушло на задачи спринта</em>
+        </span>
+        <input class="input" type="number" name="spent" min="0" max="9999" step="0.5" autocomplete="off" />
+      </label>
 
       <div class="grid-2" id="carryTargetBlock">
         <label class="field">

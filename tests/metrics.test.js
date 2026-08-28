@@ -167,6 +167,47 @@ test('задачи без оценки считаются в штуках, но 
   assert.equal(m.pctTasks, 50, 'а по задачам — половина');
 });
 
+test('участники считаются по полю «Исполнитель»', () => {
+  const app = loadApp();
+  const m = app.Metrics.sprintMetrics(makeSprint(app, { tasks: [
+    { points: 8, status: 'done', assignee: 'Марат' },
+    { points: 13, status: 'progress', assignee: 'Марат' },
+    { points: 5, status: 'done', assignee: 'Аня' },
+    { points: 3, status: 'todo', assignee: 'Лена' },
+    { points: 2, status: 'todo', assignee: '' },
+  ]}));
+
+  assert.equal(m.participants, 3, 'один человек с двумя задачами — это один участник');
+  assert.equal(m.unassignedTasks, 1);
+  assert.equal(m.unassignedPoints, 2);
+  assert.deepEqual(m.byAssignee.map(p => [p.name, p.tasks, p.points, p.donePoints]),
+    [['Марат', 2, 21, 8], ['Аня', 1, 5, 5], ['Лена', 1, 3, 0]],
+    'сортировка по объёму работы');
+});
+
+test('одно имя в разных написаниях — один человек', () => {
+  const app = loadApp();
+  const m = app.Metrics.sprintMetrics(makeSprint(app, { tasks: [
+    { points: 3, assignee: 'марат' },
+    { points: 5, assignee: '  Марат  ' },
+    { points: 2, assignee: 'МАРАТ' },
+  ]}));
+
+  assert.equal(m.participants, 1);
+  assert.equal(m.byAssignee[0].points, 10);
+  assert.equal(m.byAssignee[0].name, 'Марат', 'показываем написание с заглавной');
+});
+
+test('без исполнителей участников ноль, а не пустые имена', () => {
+  const app = loadApp();
+  const m = app.Metrics.sprintMetrics(makeSprint(app, { tasks: [
+    { points: 3 }, { points: 5, assignee: '   ' },
+  ]}));
+  assert.equal(m.participants, 0);
+  assert.deepEqual(m.byAssignee, []);
+  assert.equal(m.unassignedTasks, 2);
+});
+
 test('inMode переключает единицы измерения', () => {
   const app = loadApp();
   const m = app.Metrics.sprintMetrics(baseSprint(app));
@@ -199,4 +240,54 @@ test('pct округляет и не делит на ноль', () => {
   assert.equal(Metrics.pct(1, 3), 33);
   assert.equal(Metrics.pct(2, 3), 67);
   assert.equal(Metrics.pct(5, 0), 0);
+});
+
+test('ёмкость и факт дают перебор, фокус-фактор и точность оценки', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, { startOffset: -6, tasks: [
+    { points: 30, status: 'done' }, { points: 32, status: 'progress' },
+  ]});
+  app.Store.updateSprint(sprint.id, { capacity: 45, spent: 40 });
+  const m = app.Metrics.sprintMetrics(app.Store.sprintById(sprint.id));
+
+  assert.equal(m.capacity, 45);
+  assert.equal(m.spent, 40);
+  assert.ok(Math.abs(m.commitRatio - 62 / 45) < 1e-9, 'взято 62 SP при ёмкости 45');
+  assert.ok(Math.abs(m.focusFactor - 40 / 45) < 1e-9, 'фокус-фактор — доля ёмкости, ушедшая в задачи');
+  assert.ok(Math.abs(m.estimateAccuracy - 30 / 40) < 1e-9, 'SP закрыто на человеко-день');
+});
+
+test('без заполненных человеко-дней производные метрики равны null', () => {
+  const app = loadApp();
+  const m = app.Metrics.sprintMetrics(makeSprint(app, { tasks: [{ points: 10, status: 'done' }] }));
+  assert.equal(m.capacity, null);
+  assert.equal(m.spent, null);
+  assert.equal(m.commitRatio, null);
+  assert.equal(m.focusFactor, null);
+  assert.equal(m.estimateAccuracy, null);
+});
+
+test('заполнена только ёмкость — есть перебор, но не фокус и не точность', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, { tasks: [{ points: 20, status: 'done' }] });
+  app.Store.updateSprint(sprint.id, { capacity: 40 });
+  const m = app.Metrics.sprintMetrics(app.Store.sprintById(sprint.id));
+
+  assert.equal(m.commitRatio, 0.5, 'взяли вдвое меньше ёмкости');
+  assert.equal(m.focusFactor, null, 'без факта считать нечего');
+  assert.equal(m.estimateAccuracy, null);
+});
+
+test('человеко-дни нормализуются и переживают импорт', () => {
+  const { Store } = loadApp();
+  const state = Store.parseImport(JSON.stringify({
+    sprints: [
+      { name: 'A', startDate: '2026-08-10', endDate: '2026-08-23', capacity: '45.25', spent: 0, tasks: [] },
+      { name: 'B', startDate: '2026-08-10', endDate: '2026-08-23', capacity: 'много', spent: -5, tasks: [] },
+    ],
+  }));
+  assert.equal(state.sprints[0].capacity, 45.3, 'округляется до десятых');
+  assert.equal(state.sprints[0].spent, null, 'ноль — это «не заполнено»');
+  assert.equal(state.sprints[1].capacity, null, 'нечисло отбрасывается');
+  assert.equal(state.sprints[1].spent, null, 'отрицательное отбрасывается');
 });

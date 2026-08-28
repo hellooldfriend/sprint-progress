@@ -91,6 +91,7 @@
       form.goal.value = sprint.goal || '';
       form.startDate.value = sprint.startDate;
       form.endDate.value = sprint.endDate;
+      form.capacity.value = sprint.capacity === null ? '' : sprint.capacity;
     } else {
       const start = Store.today();
       form.name.value = suggestSprintName();
@@ -139,6 +140,7 @@
       goal: form.goal.value.trim(),
       startDate: form.startDate.value,
       endDate: form.endDate.value,
+      capacity: form.capacity.value === '' ? null : Number(form.capacity.value),
     };
     if (!data.name || !data.startDate || !data.endDate) return;
     if (Store.diffDays(data.startDate, data.endDate) < 0) {
@@ -659,6 +661,12 @@
       </div>
       <div class="hint">«${UI.esc(sprint.name)}» уедет в историю. Вернуть в работу можно в любой момент.</div>`;
 
+    $('#closeSprintForm').spent.value = sprint.spent !== null ? sprint.spent
+      : sprint.capacity !== null ? sprint.capacity : '';
+    $('#spentField').querySelector('.field__label em').textContent = sprint.capacity
+      ? `— ёмкость была ${Metrics.fmt(sprint.capacity)} п/д`
+      : '— сколько реально ушло на задачи спринта';
+
     // Список незакрытых задач с полем остаточной оценки
     $('#carryBlock').hidden = candidates.length === 0;
     $('#carryTargetBlock').hidden = candidates.length === 0;
@@ -775,6 +783,7 @@
     }
 
     const moved = targetSprint ? Store.carryTasks(sprint.id, targetSprint.id, items) : 0;
+    Store.updateSprint(sprint.id, { spent: form.spent.value === '' ? null : Number(form.spent.value) });
     Store.archiveSprint(sprint.id);
     if (targetSprint) Store.selectSprint(targetSprint.id);
 

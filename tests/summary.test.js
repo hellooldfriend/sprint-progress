@@ -86,6 +86,32 @@ test('долг из прошлых спринтов и долгожители п
   assert.ok(text.includes('🔁 Едет третий спринт и дольше: DEV-1 Миграция'));
 });
 
+test('участники попадают в сводку строкой и разбивкой', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, { startOffset: -5, tasks: [
+    { key: 'A-1', title: 'Раз', points: 8, status: 'done', assignee: 'Марат' },
+    { key: 'A-2', title: 'Два', points: 5, status: 'progress', assignee: 'Аня' },
+    { key: 'A-3', title: 'Три', points: 2, status: 'todo' },
+  ]});
+
+  const short = app.Summary.forSprint(sprint);
+  assert.ok(short.includes('👥 Участники: 2 — Марат, Аня, без исполнителя 1 задача'));
+  assert.ok(!short.includes('закрыто 8 SP'), 'разбивка только в подробном режиме');
+
+  const long = app.Summary.forSprint(sprint, { withTasks: true });
+  assert.ok(long.includes('👥 Участники (2):'));
+  assert.ok(long.includes('  Марат — 1 задача · 8 SP, закрыто 8 SP'));
+  assert.ok(long.includes('  Аня — 1 задача · 5 SP, закрыто 0 SP'));
+  assert.ok(long.includes('  Без исполнителя — 1 задача · 2 SP'));
+});
+
+test('если исполнители не заполнены, строки об участниках нет', () => {
+  const app = loadApp();
+  const text = app.Summary.forSprint(
+    makeSprint(app, { startOffset: -5, tasks: [{ title: 'Раз', points: 3 }] }), { withTasks: true });
+  assert.ok(!text.includes('👥'));
+});
+
 test('без оценок сводка считает задачи, а не story points', () => {
   const app = loadApp();
   const sprint = makeSprint(app, { startOffset: -5, tasks: [
@@ -227,4 +253,25 @@ test('сводка — это plain text без разметки', () => {
   assert.match(text, /\p{Extended_Pictographic}/u, 'эмодзи в тексте есть');
   assert.ok(!text.includes('\n\n\n'), 'без лишних пустых строк подряд');
   assert.equal(text.trim(), text, 'без пустых строк по краям');
+});
+
+test('ёмкость в сводке: на планировании перебор, в итоге фокус и точность', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, { startOffset: -6, tasks: [
+    { points: 20, status: 'done' }, { points: 42, status: 'progress' },
+  ]});
+  app.Store.updateSprint(sprint.id, { capacity: 45 });
+  assert.ok(app.Summary.forSprint(app.Store.sprintById(sprint.id))
+    .includes('📐 Ёмкость 45 п/д, взято 62 SP — перебор на 38%'));
+
+  app.Store.updateSprint(sprint.id, { spent: 40 });
+  app.Store.archiveSprint(sprint.id);
+  assert.ok(app.Summary.forSprint(app.Store.sprintById(sprint.id))
+    .includes('📐 Ёмкость 45 п/д, потрачено 40 п/д (фокус 89%) — на 1 п/д закрывали 0.5 SP'));
+});
+
+test('без ёмкости строки о человеко-днях в сводке нет', () => {
+  const app = loadApp();
+  const text = app.Summary.forSprint(makeSprint(app, { startOffset: -5, tasks: [{ points: 5 }] }));
+  assert.ok(!text.includes('📐'));
 });

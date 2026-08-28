@@ -59,6 +59,25 @@ const Summary = (() => {
       ? `🧩 Планово ${planned}, внепланово ${unplanned} — ${unplannedShare}% объёма`
       : `🧩 Планово ${planned}, внеплановой работы не прилетало`);
 
+    if (m.capacity) {
+      if (archived && m.spent) {
+        lines.push(`📐 Ёмкость ${n(m.capacity)} п/д, потрачено ${n(m.spent)} п/д ` +
+          `(фокус ${Math.round(m.focusFactor * 100)}%) — на 1 п/д закрывали ${n(m.estimateAccuracy)} SP`);
+      } else {
+        const over = Math.round((m.commitRatio - 1) * 100);
+        const verdict = over > 5 ? `перебор на ${over}%` : over < -5 ? `запас ${Math.abs(over)}%` : 'ровно по ёмкости';
+        lines.push(`📐 Ёмкость ${n(m.capacity)} п/д, взято ${n(m.totalPoints)} SP — ${verdict}`);
+      }
+    }
+
+    if (m.participants) {
+      const names = m.byAssignee.map(p => p.name).join(', ');
+      const unassigned = m.unassignedTasks
+        ? `, без исполнителя ${m.unassignedTasks} ${tasksWord(m.unassignedTasks)}`
+        : '';
+      lines.push(`👥 Участники: ${m.participants} — ${names}${unassigned}`);
+    }
+
     if (m.carriedTasks) {
       const carried = byPoints ? `${n(m.carriedPoints)} SP` : `${m.carriedTasks} ${tasksWord(m.carriedTasks)}`;
       lines.push(`♻️ Долг из прошлых спринтов: ${carried}`);
@@ -98,7 +117,10 @@ const Summary = (() => {
     }
 
     /* ── Перечень задач ── */
-    if (options.withTasks) lines.push('', ...taskList(sprint, byPoints, archived));
+    if (options.withTasks) {
+      lines.push('', ...taskList(sprint, byPoints, archived));
+      if (m.participants) lines.push('', ...peopleList(m, byPoints));
+    }
 
     return lines.join('\n');
   }
@@ -193,6 +215,25 @@ const Summary = (() => {
             : Store.STATUSES.find(s => s.id === t.status).label;
         out.push(taskLine(t, byPoints, [mark]));
       });
+    }
+    return out;
+  }
+
+  /** Нагрузка по людям: сколько взял и сколько из этого закрыл. */
+  function peopleList(m, byPoints) {
+    const out = [`👥 Участники (${m.participants}):`];
+    m.byAssignee.forEach(p => {
+      const volume = byPoints && p.points > 0
+        ? `${p.tasks} ${tasksWord(p.tasks)} · ${n(p.points)} SP`
+        : `${p.tasks} ${tasksWord(p.tasks)}`;
+      const done = byPoints && p.points > 0
+        ? `закрыто ${n(p.donePoints)} SP`
+        : `закрыто ${p.doneTasks}`;
+      out.push(`  ${p.name} — ${volume}, ${done}`);
+    });
+    if (m.unassignedTasks) {
+      out.push(`  Без исполнителя — ${m.unassignedTasks} ${tasksWord(m.unassignedTasks)}` +
+        (byPoints && m.unassignedPoints > 0 ? ` · ${n(m.unassignedPoints)} SP` : ''));
     }
     return out;
   }

@@ -10,6 +10,8 @@
      sprints: [{
        id, name, goal, startDate:'YYYY-MM-DD', endDate:'YYYY-MM-DD',
        status: 'active'|'archived', createdAt, archivedAt,
+       capacity:number|null,   // ёмкость команды в человеко-днях, заполняется на планировании
+       spent:number|null,      // сколько человеко-дней реально ушло на задачи, заполняется при закрытии
        tasks: [{ id, key:string, title, type:string, points:number|null, status,
                  unplanned:boolean, dropped:boolean, dropReason:string, assignee:string,
                  carriedFrom:{id,name}|null, carriedTo:{id,name}|null, carryCount:number,
@@ -341,6 +343,12 @@ const Store = (() => {
 
   let state = null;
 
+  /** Человеко-дни: положительное число либо null, если не заполнено. */
+  function normalizeDays(value) {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? Math.round(num * 10) / 10 : null;
+  }
+
   /** Приводит любые входные данные (в т.ч. импорт) к валидной форме. */
   function normalize(raw) {
     const base = emptyState();
@@ -361,6 +369,8 @@ const Store = (() => {
         status: s.status === 'archived' ? 'archived' : 'active',
         createdAt: s.createdAt || new Date().toISOString(),
         archivedAt: s.archivedAt || null,
+        capacity: normalizeDays(s.capacity),
+        spent: normalizeDays(s.spent),
         tasks: Array.isArray(s.tasks) ? s.tasks.filter(Boolean).map(t => {
           const status = STATUS_IDS.includes(t.status) ? t.status : 'todo';
           const points = Number.isFinite(Number(t.points)) && t.points !== null && t.points !== ''
@@ -456,7 +466,7 @@ const Store = (() => {
 
   /* ───────────── CRUD: спринты ───────────── */
 
-  function createSprint({ name, goal, startDate, endDate }) {
+  function createSprint({ name, goal, startDate, endDate, capacity }) {
     const sprint = {
       id: uid(),
       name: name.trim(),
@@ -466,6 +476,8 @@ const Store = (() => {
       status: 'active',
       createdAt: new Date().toISOString(),
       archivedAt: null,
+      capacity: normalizeDays(capacity),
+      spent: null,
       tasks: [],
     };
     state.sprints.push(sprint);
@@ -477,6 +489,8 @@ const Store = (() => {
   function updateSprint(id, patch) {
     const s = sprintById(id);
     if (!s) return null;
+    if (patch.capacity !== undefined) patch.capacity = normalizeDays(patch.capacity);
+    if (patch.spent !== undefined) patch.spent = normalizeDays(patch.spent);
     Object.assign(s, patch);
     save();
     return s;
@@ -941,7 +955,7 @@ const Store = (() => {
     parseCSV, detectCsvMapping, itemsFromCsv, parseDateTime, CSV_FIELDS, CSV_FIELD_LABELS,
     normalizeStatusKey: normalizeWord,
     // утилиты дат
-    uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange,
+    uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange, normalizeDays,
     // состояние
     load, save, get, sprints, sortedSprints, activeSprint, sprintById, setSetting,
     // спринты
