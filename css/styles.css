@@ -368,22 +368,22 @@ body.sidebar-collapsed .sidebar {
 .progress-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 
 /* ── Сетка метрик ── */
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); gap: 14px; }
 
 .metric {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r-lg); padding: 16px 17px;
-  display: flex; flex-direction: column; gap: 9px;
+  border-radius: var(--r-lg); padding: 20px 19px;
+  display: flex; flex-direction: column; gap: 12px;
   transition: border-color var(--t), transform var(--t), background var(--t);
 }
 .metric:hover { border-color: var(--border-strong); transform: translateY(-1px); }
-.metric__head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.metric__head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
 .metric__head .dot { width: 7px; height: 7px; border-radius: 99px; flex: none; }
 .metric__value { display: flex; align-items: baseline; gap: 7px; }
-.metric__value b { font-size: 27px; font-weight: 620; letter-spacing: -.035em; line-height: 1; }
+.metric__value b { font-size: 29px; font-weight: 620; letter-spacing: -.035em; line-height: 1; }
 .metric__value span { font-size: 12px; color: var(--faint); }
-.metric__foot { font-size: 11.5px; color: var(--faint); }
-.metric__spark { height: 4px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.metric__foot { font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+.metric__spark { height: 4px; border-radius: 99px; background: var(--surface-3); overflow: hidden; margin-top: -1px; }
 .metric__spark > i { display: block; height: 100%; border-radius: 99px; transition: width .6s var(--ease); }
 
 .dot--accent { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }

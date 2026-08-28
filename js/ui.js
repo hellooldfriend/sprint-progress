@@ -34,6 +34,12 @@ const UI = (() => {
     return `<span class="tag ${n >= 2 ? 'tag--longrun' : 'tag--carry'}" title="${esc(title)}">${esc(text)}</span>`;
   }
   const unitLabel = () => (mode() === 'points' ? 'SP' : 'задач');
+  /**
+   * Единица рядом с числом склоняется: «2 задачи», а не «2 задач».
+   * В связках вроде «из 40 задач» родительный падеж верен всегда, там используется unitLabel.
+   */
+  const unitFor = value =>
+    (mode() === 'points' ? 'SP' : Metrics.plural(value, 'задача', 'задачи', 'задач'));
 
   /* ═════════════ Иконки ═════════════ */
   const ICONS = {
@@ -238,21 +244,27 @@ const UI = (() => {
 
     return `<section class="metrics">
       ${card({
-        dot: 'dot--accent', title: 'Запланировано', value: Metrics.fmt(v.planned), unit: v.unit,
+        dot: 'dot--accent', title: 'Запланировано', value: Metrics.fmt(v.planned), unit: unitFor(v.planned),
         spark: plannedDonePct, sparkColor: 'var(--accent)',
         foot: `Закрыто ${Metrics.fmt(v.donePlanned)} из ${Metrics.fmt(v.planned)} · ${plannedDonePct}%`,
       })}
       ${card({
-        dot: 'dot--amber', title: 'Незапланировано', value: Metrics.fmt(v.unplanned), unit: v.unit,
+        dot: 'dot--amber', title: 'Незапланировано', value: Metrics.fmt(v.unplanned), unit: unitFor(v.unplanned),
         spark: unplannedDonePct, sparkColor: 'var(--amber)',
         foot: v.unplanned > 0
           ? `${v.unplannedShare}% объёма спринта · закрыто ${Metrics.fmt(v.doneUnplanned)}`
           : 'Пока ничего не прилетало — отлично',
       })}
       ${card({
-        dot: 'dot--green', title: 'Выполнено', value: Metrics.fmt(v.done), unit: v.unit,
+        dot: 'dot--green', title: 'Выполнено', value: Metrics.fmt(v.done), unit: unitFor(v.done),
         spark: v.pct, sparkColor: 'var(--green)',
         foot: `${v.pct}% спринта · velocity ${Metrics.fmt(m.velocity)} SP`,
+      })}
+      ${card({
+        dot: 'dot--teal', title: 'Готово к деплою',
+        value: mode() === 'points' ? Metrics.fmt(m.byStatus.deploy.points) : String(m.byStatus.deploy.count),
+        unit: unitFor(mode() === 'points' ? m.byStatus.deploy.points : m.byStatus.deploy.count),
+        foot: deployFoot(m),
       })}
       ${archived
         ? card({
@@ -263,7 +275,7 @@ const UI = (() => {
               : 'Ничего не переносили в следующий спринт',
           })
         : card({
-            dot: 'dot--blue', title: 'Remaining work', value: Metrics.fmt(v.remaining), unit: v.unit,
+            dot: 'dot--blue', title: 'Remaining work', value: Metrics.fmt(v.remaining), unit: unitFor(v.remaining),
             spark: 100 - v.pct, sparkColor: 'var(--blue)',
             foot: `В работе — от In Progress до Deploy: ${Metrics.fmt(v.inProgress)} ${v.unit}`,
           })}
@@ -282,12 +294,10 @@ const UI = (() => {
           ? `${v.carriedShare}% объёма спринта · ${m.longRunners} ${Metrics.plural(m.longRunners, 'задача едет', 'задачи едут', 'задач едут')} 3-й спринт и дольше`
           : `${v.carriedShare}% объёма спринта — это долг, а не свежая работа`,
       }) : ''}
-      ${card({
-        dot: 'dot--muted', title: archived ? 'Сняли со спринта' : 'Не закроем', value: Metrics.fmt(v.dropped), unit: v.unit,
-        foot: v.dropped > 0
-          ? `${v.droppedShare}% объёма спринта · ${m.dropByReason.map(r => `${r.short} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(' · ')}`
-          : archived ? 'Скоуп не резали' : 'Скоуп пока не резали',
-      })}
+      ${v.dropped > 0 ? card({
+        dot: 'dot--muted', title: archived ? 'Сняли со спринта' : 'Не закроем', value: Metrics.fmt(v.dropped), unit: unitFor(v.dropped),
+        foot: `${v.droppedShare}% объёма спринта · ${m.dropByReason.map(r => `${r.short} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(' · ')}`,
+      }) : ''}
       ${card({
         dot: 'dot--muted', title: archived ? 'Средний темп' : 'Темп', value: Metrics.fmt(v.pace), unit: `${v.unit}/день`,
         foot: archived
@@ -297,6 +307,15 @@ const UI = (() => {
             : 'Время спринта вышло',
       })}
     </section>`;
+  }
+
+  /** Сколько ждёт выкатки: в подписи всегда вторая единица, чтобы число задач было видно в любом режиме. */
+  function deployFoot(m) {
+    const { count, points } = m.byStatus.deploy;
+    if (!count) return 'В колонке Deploy пусто';
+    return mode() === 'points'
+      ? `${count} ${Metrics.plural(count, 'задача ждёт', 'задачи ждут', 'задач ждут')} выкатки`
+      : `${Metrics.fmt(points)} SP ждут выкатки`;
   }
 
   /**
@@ -336,7 +355,7 @@ const UI = (() => {
     const cell = (title, dotClass, value, done, pctVal, color, foot) => `
       <div class="split__cell">
         <div class="split__head"><span class="dot ${dotClass}"></span>${title}</div>
-        <div class="split__nums"><b>${Metrics.fmt(value)}</b><span>${v.unit} · закрыто ${Metrics.fmt(done)}</span></div>
+        <div class="split__nums"><b>${Metrics.fmt(value)}</b><span>${unitFor(value)} · закрыто ${Metrics.fmt(done)}</span></div>
         <div class="split__bar"><i style="width:${pctVal}%;background:${color}"></i></div>
         <div class="split__foot">${foot}</div>
       </div>`;
