@@ -335,6 +335,15 @@ const UI = (() => {
     return `Взято ${Metrics.fmt(m.totalPoints)} SP — ${verdict}`;
   }
 
+  /** Номер задачи: ссылка в трекер, если задан базовый адрес. */
+  function taskKeyHTML(task) {
+    const url = Store.taskUrl(task.key);
+    return url
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener" draggable="false"
+            title="Открыть в трекере">${esc(task.key)}</a>`
+      : esc(task.key);
+  }
+
   /** «Марат Ахметов» → «Марат А.»: в карточке метрики полные имена не помещаются. */
   function shortName(name) {
     const parts = String(name).trim().split(/\s+/);
@@ -491,7 +500,7 @@ const UI = (() => {
     return `
     <article class="task ${t.unplanned ? 'is-unplanned' : ''} ${t.status === 'done' ? 'is-done' : ''} ${t.dropped ? 'is-dropped' : ''}"
              data-task="${t.id}" ${readonly ? '' : 'draggable="true"'}>
-      ${t.key ? `<div class="task__key">${esc(t.key)}</div>` : ''}
+      ${t.key ? `<div class="task__key">${taskKeyHTML(t)}</div>` : ''}
       <div class="task__title">${esc(t.title)}</div>
       <div class="task__meta">
         ${t.points !== null ? `<span class="tag tag--points">${Metrics.fmt(t.points)} SP</span>` : ''}

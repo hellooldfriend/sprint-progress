@@ -334,6 +334,7 @@ const Store = (() => {
       settings: {
         metricMode: 'points', chartMode: 'burndown',
         statusMap: {}, csvMapping: null, sidebarCollapsed: false,
+        taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false,
       },
       sprints: [],
     };
@@ -415,6 +416,9 @@ const Store = (() => {
       csvMapping: rawSettings.csvMapping && typeof rawSettings.csvMapping === 'object'
         ? rawSettings.csvMapping : null,
       sidebarCollapsed: !!rawSettings.sidebarCollapsed,
+      taskBaseUrl: String(rawSettings.taskBaseUrl || '').trim().slice(0, 300),
+      summaryWithTasks: !!rawSettings.summaryWithTasks,
+      summaryWithPeople: !!rawSettings.summaryWithPeople,
     };
     const activeSprintId = sprints.some(s => s.id === raw.activeSprintId)
       ? raw.activeSprintId
@@ -458,6 +462,21 @@ const Store = (() => {
   }
 
   /* ───────────── Настройки ───────────── */
+
+  /**
+   * Ссылка на задачу в трекере: базовый адрес из настроек + номер.
+   * «jira.com» + «DEV-123» → «https://jira.com/DEV-123».
+   * Схему дописываем сами: без неё ссылка не кликается ни в чате, ни в href.
+   *
+   * @returns {string} пустая строка, если база не задана или у задачи нет номера
+   */
+  function taskUrl(key) {
+    const base = String((state && state.settings && state.settings.taskBaseUrl) || '').trim();
+    if (!base || !key) return '';
+    const withScheme = /^https?:\/\//i.test(base) ? base : `https://${base}`;
+    // Номер задачи URL-безопасен сам по себе, а кодирование делает кириллицу нечитаемой в чате
+    return `${withScheme.replace(/\/+$/, '')}/${String(key).trim()}`;
+  }
 
   function setSetting(key, value) {
     state.settings[key] = value;
@@ -957,7 +976,7 @@ const Store = (() => {
     // утилиты дат
     uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange, normalizeDays,
     // состояние
-    load, save, get, sprints, sortedSprints, activeSprint, sprintById, setSetting,
+    load, save, get, sprints, sortedSprints, activeSprint, sprintById, setSetting, taskUrl,
     // спринты
     createSprint, updateSprint, archiveSprint, reopenSprint, deleteSprint, selectSprint,
     // задачи

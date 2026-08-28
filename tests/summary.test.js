@@ -94,11 +94,10 @@ test('участники попадают в сводку строкой и ра
     { key: 'A-3', title: 'Три', points: 2, status: 'todo' },
   ]});
 
-  const short = app.Summary.forSprint(sprint);
+  const short = app.Summary.forSprint(sprint, { withPeople: true });
   assert.ok(short.includes('👥 Участники: 2 — Марат, Аня, без исполнителя 1 задача'));
-  assert.ok(!short.includes('закрыто 8 SP'), 'разбивка только в подробном режиме');
 
-  const long = app.Summary.forSprint(sprint, { withTasks: true });
+  const long = app.Summary.forSprint(sprint, { withTasks: true, withPeople: true });
   assert.ok(long.includes('👥 Участники (2):'));
   assert.ok(long.includes('  Марат — 1 задача · 8 SP, закрыто 8 SP'));
   assert.ok(long.includes('  Аня — 1 задача · 5 SP, закрыто 0 SP'));
@@ -108,7 +107,8 @@ test('участники попадают в сводку строкой и ра
 test('если исполнители не заполнены, строки об участниках нет', () => {
   const app = loadApp();
   const text = app.Summary.forSprint(
-    makeSprint(app, { startOffset: -5, tasks: [{ title: 'Раз', points: 3 }] }), { withTasks: true });
+    makeSprint(app, { startOffset: -5, tasks: [{ title: 'Раз', points: 3 }] }),
+    { withTasks: true, withPeople: true });
   assert.ok(!text.includes('👥'));
 });
 
@@ -274,4 +274,47 @@ test('без ёмкости строки о человеко-днях в сво�
   const app = loadApp();
   const text = app.Summary.forSprint(makeSprint(app, { startOffset: -5, tasks: [{ points: 5 }] }));
   assert.ok(!text.includes('📐'));
+});
+
+test('участники добавляются отдельным флагом, а не вместе с задачами', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, { startOffset: -5, tasks: [
+    { key: 'A-1', title: 'Раз', points: 5, status: 'done', assignee: 'Марат Ахметов' },
+  ]});
+
+  const bare = app.Summary.forSprint(sprint);
+  assert.ok(!bare.includes('👥'), 'по умолчанию участников нет');
+
+  const withTasks = app.Summary.forSprint(sprint, { withTasks: true });
+  assert.ok(withTasks.includes('✅ Done'));
+  assert.ok(!withTasks.includes('👥'), 'перечень задач участников не тянет');
+
+  const withPeople = app.Summary.forSprint(sprint, { withPeople: true });
+  assert.ok(withPeople.includes('👥 Участники: 1 — Марат Ахметов'));
+  assert.ok(withPeople.includes('👥 Участники (1):'), 'строка и разбивка приходят вместе');
+  assert.ok(!withPeople.includes('✅ Done ('), 'а задачи — нет');
+});
+
+test('номер задачи превращается в ссылку, когда задан адрес трекера', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, { startOffset: -5, tasks: [
+    { key: 'DEV-1', title: 'Дизайн', points: 5, status: 'done' },
+  ]});
+
+  const plain = app.Summary.forSprint(sprint, { withTasks: true });
+  assert.ok(plain.includes('  DEV-1 Дизайн — 5 SP'));
+
+  app.Store.setSetting('taskBaseUrl', 'jira.company.com/browse');
+  const linked = app.Summary.forSprint(sprint, { withTasks: true });
+  assert.ok(linked.includes('  https://jira.company.com/browse/DEV-1 Дизайн — 5 SP'));
+  assert.ok(!linked.includes('[') && !linked.includes('<'), 'ссылка голая, без разметки');
+});
+
+test('задачи без номера не получают битых ссылок', () => {
+  const app = loadApp();
+  app.Store.setSetting('taskBaseUrl', 'jira.com');
+  const sprint = makeSprint(app, { startOffset: -5, tasks: [{ key: '', title: 'Без номера', points: 3 }] });
+  const text = app.Summary.forSprint(sprint, { withTasks: true });
+  assert.ok(text.includes('  Без номера — 3 SP'));
+  assert.ok(!text.includes('jira.com'));
 });

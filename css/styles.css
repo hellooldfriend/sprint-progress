@@ -477,6 +477,8 @@ body.sidebar-collapsed .sidebar {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em;
   color: var(--faint); text-transform: uppercase;
 }
+.task__key a { color: inherit; text-decoration: none; }
+.task__key a:hover { color: var(--accent); text-decoration: underline; }
 .task__title { font-size: 13px; line-height: 1.42; word-break: break-word; }
 .task.is-done .task__title { color: var(--muted); }
 .task__meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

@@ -607,6 +607,8 @@
     if (!s || s.status === 'archived') return;
     const taskId = card.dataset.task;
 
+    if (e.target.closest('a')) return;    // клик по ссылке на номер — уходим в трекер
+
     if (!actBtn) {                        // клик по телу карточки — открыть редактирование
       const task = s.tasks.find(t => t.id === taskId);
       if (task) openTaskModal(task);
@@ -848,18 +850,49 @@
   function renderSummary() {
     const sprint = Store.activeSprint();
     if (!sprint) return;
-    $('#summaryText').value = Summary.forSprint(sprint, { withTasks: $('#summaryWithTasks').checked });
+    $('#summaryText').value = Summary.forSprint(sprint, {
+      withTasks: $('#summaryWithTasks').checked,
+      withPeople: $('#summaryWithPeople').checked,
+    });
+    renderBaseUrlHint();
+  }
+
+  /** Живой пример ссылки: сразу видно, что получится из номера задачи. */
+  function renderBaseUrlHint() {
+    const sprint = Store.activeSprint();
+    const sample = (sprint && sprint.tasks.find(t => t.key)) || { key: 'DEV-123' };
+    const url = Store.taskUrl(sample.key);
+    $('#taskBaseUrlHint').textContent = url
+      ? `${sample.key} → ${url}`
+      : 'Пусто — в сводке останутся просто номера задач';
   }
 
   $('#btnSummary').addEventListener('click', () => {
     if (!Store.activeSprint()) return UI.toast('Сначала создайте спринт', 'err');
+    const settings = Store.get().settings;
+    $('#summaryWithTasks').checked = settings.summaryWithTasks;
+    $('#summaryWithPeople').checked = settings.summaryWithPeople;
+    $('#taskBaseUrl').value = settings.taskBaseUrl;
     renderSummary();
     openModal('summaryModal');
     // Текст сразу выделен: можно копировать привычным Cmd+C, не целясь в кнопку
     setTimeout(() => $('#summaryText').select(), 40);
   });
 
-  $('#summaryWithTasks').addEventListener('change', renderSummary);
+  // Настройки сводки запоминаются: не переставлять галки при каждом открытии
+  $('#summaryWithTasks').addEventListener('change', e => {
+    Store.setSetting('summaryWithTasks', e.target.checked);
+    renderSummary();
+  });
+  $('#summaryWithPeople').addEventListener('change', e => {
+    Store.setSetting('summaryWithPeople', e.target.checked);
+    renderSummary();
+  });
+  $('#taskBaseUrl').addEventListener('input', e => {
+    Store.setSetting('taskBaseUrl', e.target.value.trim());
+    renderSummary();
+    UI.renderBoard();          // на карточках номер тоже становится ссылкой
+  });
 
   /**
    * Копирование в буфер. Из file:// страница не является secure context,

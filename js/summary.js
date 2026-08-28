@@ -9,8 +9,15 @@ const Summary = (() => {
   const n = value => Metrics.fmt(value);
   const tasksWord = count => Metrics.plural(count, 'задача', 'задачи', 'задач');
 
-  /** Ключ и название задачи одной строкой: «DEV-123 Починить экспорт». */
-  const label = task => (task.key ? `${task.key} ` : '') + task.title;
+  /**
+   * Ключ и название задачи одной строкой: «DEV-123 Починить экспорт».
+   * Если в настройках задан адрес трекера, вместо номера подставляется ссылка —
+   * чаты и вики превращают её в кликабельную сами, разметка для этого не нужна.
+   */
+  const label = task => {
+    const key = task.key ? (Store.taskUrl(task.key) || task.key) : '';
+    return key ? `${key} ${task.title}` : task.title;
+  };
 
   /**
    * Сводка по спринту.
@@ -18,7 +25,8 @@ const Summary = (() => {
    * закрытый — как результат («чем кончилось»).
    *
    * @param {object} sprint
-   * @param {{withTasks?: boolean}} options withTasks — добавить перечень задач
+   * @param {{withTasks?: boolean, withPeople?: boolean}} options
+   *        withTasks — перечень задач по колонкам, withPeople — участники и их нагрузка
    * @returns {string}
    */
   function forSprint(sprint, options = {}) {
@@ -70,7 +78,7 @@ const Summary = (() => {
       }
     }
 
-    if (m.participants) {
+    if (m.participants && options.withPeople) {
       const names = m.byAssignee.map(p => p.name).join(', ');
       const unassigned = m.unassignedTasks
         ? `, без исполнителя ${m.unassignedTasks} ${tasksWord(m.unassignedTasks)}`
@@ -119,7 +127,9 @@ const Summary = (() => {
     /* ── Перечень задач ── */
     if (options.withTasks) {
       lines.push('', ...taskList(sprint, byPoints, archived));
-      if (m.participants) lines.push('', ...peopleList(m, byPoints));
+    }
+    if (options.withPeople && m.participants) {
+      lines.push('', ...peopleList(m, byPoints));
     }
 
     return lines.join('\n');

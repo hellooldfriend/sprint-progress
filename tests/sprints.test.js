@@ -189,8 +189,10 @@ test('настройки нормализуются при импорте, вк�
     'ключ нормализуется, несуществующая колонка отбрасывается');
 
   const bare = Store.parseImport(JSON.stringify({ sprints: [] }));
-  assert.deepEqual(bare.settings,
-    { metricMode: 'points', chartMode: 'burndown', statusMap: {}, csvMapping: null, sidebarCollapsed: false });
+  assert.deepEqual(bare.settings, {
+    metricMode: 'points', chartMode: 'burndown', statusMap: {}, csvMapping: null,
+    sidebarCollapsed: false, taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false,
+  });
 });
 
 test('импорт мусора отклоняется с понятной ошибкой', () => {
@@ -205,4 +207,31 @@ test('конец спринта не может быть раньше начал
     sprints: [{ name: 'Задом наперёд', startDate: '2026-08-20', endDate: '2026-08-10', tasks: [] }],
   }));
   assert.equal(state.sprints[0].endDate, '2026-08-20');
+});
+
+test('адрес задачи собирается из базы и номера', () => {
+  const { Store } = loadApp();
+  Store.setSetting('taskBaseUrl', 'jira.com');
+  assert.equal(Store.taskUrl('DEV-123'), 'https://jira.com/DEV-123', 'схема дописывается');
+
+  Store.setSetting('taskBaseUrl', 'https://jira.company.com/browse/');
+  assert.equal(Store.taskUrl('DEV-1'), 'https://jira.company.com/browse/DEV-1', 'лишний слэш убирается');
+
+  Store.setSetting('taskBaseUrl', 'jira.com');
+  assert.equal(Store.taskUrl('ПРО-7'), 'https://jira.com/ПРО-7', 'кириллица остаётся читаемой');
+
+  assert.equal(Store.taskUrl(''), '', 'без номера ссылки нет');
+  Store.setSetting('taskBaseUrl', '');
+  assert.equal(Store.taskUrl('DEV-1'), '', 'без базы ссылки нет');
+});
+
+test('настройки сводки переживают импорт', () => {
+  const { Store } = loadApp();
+  const state = Store.parseImport(JSON.stringify({
+    sprints: [],
+    settings: { taskBaseUrl: '  jira.com/browse  ', summaryWithTasks: 1, summaryWithPeople: 0 },
+  }));
+  assert.equal(state.settings.taskBaseUrl, 'jira.com/browse');
+  assert.equal(state.settings.summaryWithTasks, true);
+  assert.equal(state.settings.summaryWithPeople, false);
 });

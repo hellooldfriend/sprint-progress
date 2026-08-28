@@ -76,7 +76,7 @@ function makeSprint(app, opts = {}) {
 
   (opts.tasks || []).forEach((t, i) => {
     const task = Store.addTask(sprint.id, {
-      key: t.key || `TST-${i + 1}`,
+      key: t.key === undefined ? `TST-${i + 1}` : t.key,   // явно пустой номер — это «номера нет»
       title: t.title || `Задача ${i + 1}`,
       type: t.type || '',
       points: t.points ?? null,

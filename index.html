@@ -426,6 +426,22 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
         </span>
       </label>
 
+      <label class="switch">
+        <input type="checkbox" id="summaryWithPeople" />
+        <span class="switch__track"><span class="switch__thumb"></span></span>
+        <span class="switch__text">
+          <strong>Добавить участников</strong>
+          <em>Кто работал над спринтом и сколько кто взял и закрыл</em>
+        </span>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Ссылка на задачи <em>— опционально, запомнится</em></span>
+        <input class="input" id="taskBaseUrl" placeholder="jira.company.com/browse"
+               maxlength="300" autocomplete="off" spellcheck="false" />
+        <span class="hint" id="taskBaseUrlHint"></span>
+      </label>
+
       <p class="hint">Текст можно поправить прямо здесь — копируется то, что видно.</p>
 
       <footer class="modal__foot">
