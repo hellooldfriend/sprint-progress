@@ -397,7 +397,7 @@ body.sidebar-collapsed .sidebar {
 .dot--muted  { background: var(--faint); }
 
 /* ── График ── */
-.chart-card { display: flex; flex-direction: column; gap: 4px; }
+.chart-card { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; }
 .chart-wrap { width: 100%; overflow-x: auto; }
 .chart-wrap svg { width: 100%; height: auto; display: block; min-width: 460px; }
 .chart-legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); padding-top: 6px; }
@@ -517,7 +517,7 @@ body.sidebar-collapsed .sidebar {
 .is-readonly .sprint-edit-only { display: none !important; }
 
 /* ── Split Planned / Unplanned ── */
-.split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
 .split__cell {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-lg); padding: 16px 17px;
