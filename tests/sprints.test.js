@@ -235,3 +235,29 @@ test('настройки сводки переживают импорт', () => 
   assert.equal(state.settings.summaryWithTasks, true);
   assert.equal(state.settings.summaryWithPeople, false);
 });
+
+test('подписка на изменения зовётся при каждом сохранении', () => {
+  const app = loadApp();
+  const seen = [];
+  const off = app.Store.onChange(state => seen.push(state.sprints.length));
+
+  const sprint = makeSprint(app, { tasks: [{ points: 3 }] });   // createSprint + addTask
+  assert.ok(seen.length >= 2, 'создание спринта и добавление задачи сохраняются');
+  assert.equal(seen[seen.length - 1], 1);
+
+  off();
+  app.Store.addTask(sprint.id, { title: 'Ещё одна', points: 1 });
+  assert.equal(seen.length, 2 + 0 || seen.length, 'после отписки вызовов не прибавляется');
+  const afterUnsubscribe = seen.length;
+  app.Store.addTask(sprint.id, { title: 'И ещё', points: 1 });
+  assert.equal(seen.length, afterUnsubscribe);
+});
+
+test('упавший подписчик не ломает сохранение', () => {
+  const app = loadApp();
+  app.Store.onChange(() => { throw new Error('файл недоступен'); });
+
+  assert.doesNotThrow(() => makeSprint(app, { tasks: [{ points: 5 }] }));
+  assert.equal(app.Store.sprints().length, 1, 'состояние всё равно сохранено');
+  assert.ok(app.storage.getItem('sprint-progress:v1'), 'и записано в хранилище');
+});

@@ -169,5 +169,78 @@ const Charts = (() => {
 </svg>`;
   }
 
-  return { burnChart };
+  /**
+   * Столбики по спринтам: что взяли против того, что сделали, и средняя velocity.
+   * Отвечает на вопрос, который не виден в таблице: команда стабильна или скачет.
+   *
+   * @param {Array<{label:string, title:string, scope:number, done:number, active:boolean}>} rows
+   * @param {string} unit подпись единиц для подсказок
+   */
+  function velocityChart(rows, unit) {
+    if (!rows.length) return '';
+
+    const H2 = 240;
+    const plotH = H2 - PAD.top - PAD.bottom;
+    const yMax = niceMax(Math.max(...rows.map(r => Math.max(r.scope, r.done))));
+    const slot = PLOT_W / rows.length;
+    const barW = Math.min(56, slot * 0.56);
+
+    const yOf = v => PAD.top + plotH - (Math.max(0, v) / yMax) * plotH;
+    const centerOf = i => PAD.left + slot * (i + 0.5);
+
+    const TICKS = 4;
+    let grid = '';
+    for (let k = 0; k <= TICKS; k++) {
+      const val = (yMax / TICKS) * k;
+      const y = yOf(val);
+      grid += `<line x1="${PAD.left}" y1="${y.toFixed(1)}" x2="${W - PAD.right}" y2="${y.toFixed(1)}"
+                 stroke="rgba(255,255,255,.06)" stroke-width="1" />`;
+      grid += `<text x="${PAD.left - 10}" y="${(y + 3.5).toFixed(1)}" text-anchor="end"
+                 fill="#6b6b76" font-size="10.5" font-family="ui-monospace, monospace">${Metrics.fmt(val)}</text>`;
+    }
+
+    let bars = '', labels = '';
+    rows.forEach((row, i) => {
+      const x = centerOf(i) - barW / 2;
+      const base = PAD.top + plotH;
+      const scopeY = yOf(row.scope);
+      const doneY = yOf(row.done);
+      // Незакрытый спринт приглушаем: его velocity ещё не итог
+      const opacity = row.active ? .45 : 1;
+
+      bars += `<g opacity="${opacity}">
+          <title>${esc(row.title)}</title>
+          <rect x="${x.toFixed(1)}" y="${scopeY.toFixed(1)}" width="${barW.toFixed(1)}"
+                height="${Math.max(0, base - scopeY).toFixed(1)}" rx="4" fill="rgba(255,255,255,.07)" />
+          <rect x="${x.toFixed(1)}" y="${doneY.toFixed(1)}" width="${barW.toFixed(1)}"
+                height="${Math.max(0, base - doneY).toFixed(1)}" rx="4" fill="#22c55e" />
+        </g>`;
+
+      labels += `<text x="${centerOf(i).toFixed(1)}" y="${H2 - 12}" text-anchor="middle"
+                   fill="#6b6b76" font-size="10.5">${esc(row.label)}</text>`;
+    });
+
+    // Средняя velocity — по закрытым спринтам: незакрытый занизил бы её
+    const finished = rows.filter(r => !r.active);
+    const source = finished.length ? finished : rows;
+    const avg = source.reduce((acc, r) => acc + r.done, 0) / source.length;
+    const avgY = yOf(avg);
+    const avgLine = `
+      <line x1="${PAD.left}" y1="${avgY.toFixed(1)}" x2="${W - PAD.right}" y2="${avgY.toFixed(1)}"
+            stroke="#8b5cf6" stroke-width="1.75" stroke-dasharray="5 5" opacity=".9" />
+      <text x="${W - PAD.right}" y="${(avgY - 7).toFixed(1)}" text-anchor="end"
+            fill="#c4b5fd" font-size="10.5">среднее ${Metrics.fmt(avg)} ${esc(unit)}</text>`;
+
+    return `
+<svg viewBox="0 0 ${W} ${H2}" role="img" aria-label="Velocity по спринтам">
+  ${grid}
+  ${bars}
+  ${avgLine}
+  ${labels}
+  <line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${W - PAD.right}" y2="${PAD.top + plotH}"
+        stroke="rgba(255,255,255,.12)" stroke-width="1" />
+</svg>`;
+  }
+
+  return { burnChart, velocityChart };
 })();

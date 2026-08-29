@@ -963,6 +963,65 @@
     }
   });
 
+  /* ═════════════ Автосохранение в файл ═════════════ */
+
+  const FILE_SYNC_LABELS = {
+    off: 'Автосохранение в файл',
+    on: 'Автосохранение включено',
+    'needs-permission': 'Подтвердить доступ к файлу',
+    error: 'Файл недоступен — переподключить',
+  };
+
+  function renderFileSync(state) {
+    const block = $('#fileSync');
+    block.hidden = !state.supported;
+    // Где API нет, честно оставляем прежнюю подсказку про экспорт
+    $('#storageHint').hidden = state.supported && state.status === 'on';
+    if (!state.supported) return;
+
+    block.className = `filesync filesync--${state.status}`;
+    $('#fileSyncLabel').textContent = FILE_SYNC_LABELS[state.status];
+    $('#fileSyncHint').innerHTML = {
+      off: 'Состояние будет писаться в файл на диске. Положите его в синхронизируемую папку — получите доступ с других машин.',
+      on: `Пишем в <span class="filesync__name">${UI.esc(state.fileName)}</span>`,
+      'needs-permission': `Браузер просит подтвердить доступ к <span class="filesync__name">${UI.esc(state.fileName)}</span> после перезагрузки`,
+      error: 'Последняя запись не удалась: файл переместили, удалили или отозвали доступ',
+    }[state.status];
+  }
+
+  $('#btnFileSync').addEventListener('click', async () => {
+    const { status } = FileSync.state();
+
+    if (status === 'on') {
+      const ok = await confirmDialog({
+        title: 'Отключить автосохранение?',
+        text: 'Файл останется на диске со всеми данными, но обновляться перестанет. Данные продолжат жить в браузере.',
+        okLabel: 'Отключить', danger: false,
+      });
+      if (ok) { await FileSync.disconnect(); UI.toast('Автосохранение выключено'); }
+      return;
+    }
+
+    if (status === 'needs-permission') {
+      const granted = await FileSync.grantPermission();
+      UI.toast(granted ? 'Доступ подтверждён, пишем в файл' : 'Браузер не дал доступ к файлу', granted ? 'ok' : 'err');
+      return;
+    }
+
+    const connected = await FileSync.connect(async existing => confirmDialog({
+      title: 'В файле уже есть данные',
+      text: `Загрузить их в приложение? В файле ${existing.sprints.length} ` +
+            `${Metrics.plural(existing.sprints.length, 'спринт', 'спринта', 'спринтов')}. ` +
+            `Если нет — файл будет перезаписан текущими данными.`,
+      okLabel: 'Загрузить из файла', danger: false,
+    }));
+
+    if (connected) {
+      UI.render();
+      UI.toast('Автосохранение включено', 'ok');
+    }
+  });
+
   /* ═════════════ Боковая панель ═════════════ */
 
   const NARROW = '(max-width: 900px)';
@@ -1023,6 +1082,7 @@
   /* ═════════════ Старт ═════════════ */
 
   Store.load();
+  FileSync.init(renderFileSync);
   fillStatusSelects();
   document.body.classList.toggle('sidebar-collapsed', !!Store.get().settings.sidebarCollapsed);
   syncSidebarButton();

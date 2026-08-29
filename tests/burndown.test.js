@@ -152,3 +152,46 @@ test('в SVG не утекает разметка из названий зада
   assert.ok(!svg.includes('<script>'), 'единицы измерения экранируются');
   assert.ok(svg.includes('&lt;b&gt;SP&lt;/b&gt;'));
 });
+
+test('velocityChart рисует по столбику на спринт и среднюю линию', () => {
+  const app = loadApp();
+  const rows = [
+    { label: '10.08', title: 'Спринт 23', scope: 40, done: 30, active: false },
+    { label: '24.08', title: 'Спринт 24', scope: 45, done: 20, active: false },
+    { label: '07.09', title: 'Спринт 25', scope: 30, done: 5,  active: true },
+  ];
+  const svg = app.Charts.velocityChart(rows, 'SP');
+
+  assert.match(svg, /^\s*<svg[^>]*viewBox="0 0 760 240"/);
+  assert.equal((svg.match(/<g opacity=/g) || []).length, 3, 'по группе на спринт');
+  assert.equal((svg.match(/<rect /g) || []).length, 6, 'взято и сделано — два столбика на спринт');
+  assert.ok(svg.includes('<title>Спринт 24</title>'));
+  assert.ok(svg.includes('10.08') && svg.includes('07.09'), 'подписи по оси X');
+  assert.ok(svg.includes('среднее 25 SP'), 'среднее считается по закрытым: (30+20)/2');
+  assert.ok(svg.includes('opacity="0.45"'), 'идущий спринт приглушён');
+});
+
+test('velocityChart не падает на пустых данных и одном спринте', () => {
+  const app = loadApp();
+  assert.equal(app.Charts.velocityChart([], 'SP'), '');
+  const one = app.Charts.velocityChart([{ label: '1.09', title: 'Один', scope: 10, done: 10, active: false }], 'SP');
+  assert.match(one, /<svg/);
+  assert.ok(one.includes('среднее 10 SP'));
+});
+
+test('когда закрытых спринтов нет, среднее считается по всем', () => {
+  const app = loadApp();
+  const svg = app.Charts.velocityChart([
+    { label: 'a', title: 'A', scope: 10, done: 6, active: true },
+    { label: 'b', title: 'B', scope: 10, done: 4, active: true },
+  ], 'SP');
+  assert.ok(svg.includes('среднее 5 SP'), 'иначе делили бы на ноль');
+});
+
+test('в подписях столбиков не утекает разметка из названия спринта', () => {
+  const app = loadApp();
+  const svg = app.Charts.velocityChart(
+    [{ label: '<b>', title: '<script>x</script>', scope: 5, done: 5, active: false }], 'SP');
+  assert.ok(!svg.includes('<script>'));
+  assert.ok(svg.includes('&lt;script&gt;'));
+});

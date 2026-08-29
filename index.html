@@ -61,7 +61,16 @@
         </button>
       </div>
       <input type="file" id="importFile" accept="application/json,.json" hidden />
-      <p class="hint hint--tiny">Всё хранится только в этом браузере (localStorage). Делайте экспорт перед чисткой кеша.</p>
+
+      <div class="filesync" id="fileSync" hidden>
+        <button class="btn btn--ghost btn--sm btn--block" id="btnFileSync">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h5l2 2h5a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>
+          <span id="fileSyncLabel">Автосохранение в файл</span>
+        </button>
+        <p class="hint hint--tiny" id="fileSyncHint"></p>
+      </div>
+
+      <p class="hint hint--tiny" id="storageHint">Всё хранится только в этом браузере (localStorage). Делайте экспорт перед чисткой кеша.</p>
     </div>
   </aside>
   <div class="scrim" id="scrim"></div>
@@ -474,6 +483,7 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
 <script src="js/store.js"></script>
 <script src="js/metrics.js"></script>
 <script src="js/charts.js"></script>
+<script src="js/filesync.js"></script>
 <script src="js/summary.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/app.js"></script>

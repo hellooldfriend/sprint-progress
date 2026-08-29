@@ -591,6 +591,8 @@ const UI = (() => {
         </article>
       </section>
 
+      ${velocitySection(rows)}
+
       <div class="section-title">Все спринты</div>
       <div class="table-wrap">
         <table class="data">
@@ -610,6 +612,41 @@ const UI = (() => {
     const base = `По ${sprints} ${Metrics.plural(sprints, 'спринту', 'спринтам', 'спринтам')} с заполненным фактом`;
     if (!capacity) return base;
     return `${base}. При ёмкости ${Metrics.fmt(capacity)} п/д берите не больше ~${Metrics.fmt(accuracy * capacity)} SP`;
+  }
+
+  /** График velocity: последние спринты слева направо, от старых к новым. */
+  function velocitySection(rows) {
+    const recent = [...rows].reverse().slice(-12);      // sortedSprints идёт от свежих
+    if (recent.length < 2) return '';
+
+    const points = mode() === 'points';
+    const data = recent.map(({ s, m }) => {
+      const v = Metrics.inMode(m, mode());
+      return {
+        label: `${Store.parseDate(s.startDate).getDate()}.${String(Store.parseDate(s.startDate).getMonth() + 1).padStart(2, '0')}`,
+        title: `${s.name} · взято ${Metrics.fmt(v.total)} ${v.unit}, сделано ${Metrics.fmt(v.done)}` +
+               (s.status === 'active' ? ' (спринт ещё идёт)' : ''),
+        scope: v.total,
+        done: v.done,
+        active: s.status === 'active',
+      };
+    });
+
+    return `
+      <section class="card chart-card">
+        <div class="card__head">
+          <div>
+            <div class="card__title">Velocity по спринтам</div>
+            <div class="card__sub">Взято против сделанного · в ${unitLabel()}</div>
+          </div>
+        </div>
+        <div class="chart-wrap">${Charts.velocityChart(data, unitLabel())}</div>
+        <div class="chart-legend">
+          <span><i style="background:var(--green)"></i>Сделано</span>
+          <span><i style="background:rgba(255,255,255,.18)"></i>Взято в спринт</span>
+          <span><i class="dashed"></i>Средняя velocity по закрытым</span>
+        </div>
+      </section>`;
   }
 
   function historyRow(s, m) {

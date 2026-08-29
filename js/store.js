@@ -441,6 +441,18 @@ const Store = (() => {
     return state;
   }
 
+  /** Подписчики на изменение состояния — на них живёт автосохранение в файл. */
+  const listeners = [];
+
+  /** @returns {Function} функция отписки */
+  function onChange(listener) {
+    listeners.push(listener);
+    return () => {
+      const i = listeners.indexOf(listener);
+      if (i !== -1) listeners.splice(i, 1);
+    };
+  }
+
   function save() {
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
@@ -448,6 +460,10 @@ const Store = (() => {
       console.error('[store] не удалось сохранить:', err);
       return false;
     }
+    // Подписчик не должен ронять сохранение: файл может быть недоступен, а работать надо дальше
+    listeners.forEach(fn => {
+      try { fn(state); } catch (err) { console.error('[store] подписчик упал:', err); }
+    });
     return true;
   }
 
@@ -976,7 +992,7 @@ const Store = (() => {
     // утилиты дат
     uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange, normalizeDays,
     // состояние
-    load, save, get, sprints, sortedSprints, activeSprint, sprintById, setSetting, taskUrl,
+    load, save, onChange, get, sprints, sortedSprints, activeSprint, sprintById, setSetting, taskUrl,
     // спринты
     createSprint, updateSprint, archiveSprint, reopenSprint, deleteSprint, selectSprint,
     // задачи
