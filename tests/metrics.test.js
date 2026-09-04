@@ -119,32 +119,48 @@ test('долгожители — это задачи, которые едут т
   assert.equal(m.maxCarryCount, 5);
 });
 
-test('темп и требуемая скорость считаются от прошедших и оставшихся дней', () => {
+test('темп и требуемая скорость считаются по рабочим дням', () => {
   const app = loadApp();
-  // Спринт начался 4 дня назад: прошло 5 дней из 14, осталось 9
+  const { Store } = app;
   const sprint = makeSprint(app, { startOffset: -4, tasks: [
     { points: 10, status: 'done' }, { points: 20, status: 'todo' },
   ]});
   const m = app.Metrics.sprintMetrics(sprint);
 
-  assert.equal(m.elapsedDays, 5);
-  assert.equal(m.daysLeft, 9);
-  assert.equal(m.totalDays, 14);
-  assert.equal(m.timePct, 36);
-  assert.equal(m.pacePoints, 2, '10 SP за 5 дней');
-  assert.ok(Math.abs(m.needPoints - 20 / 9) < 1e-9, 'остаток делится на оставшиеся дни');
+  const total = Store.workingDays(sprint.startDate, sprint.endDate);
+  const elapsed = Store.workingDays(sprint.startDate, Store.today());
+  assert.equal(m.totalDays, total, 'в двух неделях 10 рабочих дней, а не 14');
+  assert.equal(m.elapsedDays, elapsed);
+  assert.equal(m.daysLeft, total - elapsed, 'прошедшие и оставшиеся складываются в целое');
+  assert.equal(m.timePct, Math.round((elapsed / total) * 100));
+  assert.ok(elapsed >= 3, 'пять календарных дней всегда содержат минимум три рабочих');
+  assert.ok(Math.abs(m.pacePoints - 10 / elapsed) < 1e-9, 'темп — на прошедший рабочий день');
+  assert.ok(Math.abs(m.needPoints - 20 / (total - elapsed)) < 1e-9, 'нужно — на оставшийся рабочий день');
+});
+
+test('выходные не считаются: рабочих дней в спринте меньше календарных', () => {
+  const { Store } = loadApp();
+  assert.equal(Store.workingDays('2026-08-10', '2026-08-23'), 10, 'пн–вс две недели');
+  assert.equal(Store.workingDays('2026-08-15', '2026-08-16'), 0, 'только суббота и воскресенье');
+  assert.equal(Store.workingDays('2026-08-11', '2026-08-11'), 1, 'один вторник');
+  assert.equal(Store.workingDays('2026-08-23', '2026-08-10'), 0, 'конец раньше начала');
+  assert.equal(Store.isWorkingDay('2026-08-14'), true, 'пятница');
+  assert.equal(Store.isWorkingDay('2026-08-15'), false, 'суббота');
 });
 
 test('ещё не начавшийся и уже закончившийся спринт не ломают счёт дней', () => {
   const app = loadApp();
-  const future = app.Metrics.sprintMetrics(makeSprint(app, { startOffset: 5 }));
+  const { Store } = app;
+  const futureSprint = makeSprint(app, { startOffset: 5 });
+  const future = app.Metrics.sprintMetrics(futureSprint);
   assert.equal(future.elapsedDays, 0);
-  assert.equal(future.daysLeft, 14);
+  assert.equal(future.daysLeft, Store.workingDays(futureSprint.startDate, futureSprint.endDate));
   assert.equal(future.pacePoints, 0, 'делить на ноль дней не пытаемся');
 
-  const past = app.Metrics.sprintMetrics(makeSprint(app, { startOffset: -30, name: 'Прошлый' }));
+  const pastSprint = makeSprint(app, { startOffset: -30, name: 'Прошлый' });
+  const past = app.Metrics.sprintMetrics(pastSprint);
   assert.equal(past.daysLeft, 0);
-  assert.equal(past.elapsedDays, 14, 'прошедшие дни не выходят за длину спринта');
+  assert.equal(past.elapsedDays, past.totalDays, 'прошедшие дни не выходят за длину спринта');
 });
 
 test('пустой спринт даёт нули, а не деление на ноль', () => {

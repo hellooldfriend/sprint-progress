@@ -10,6 +10,7 @@ const UI = (() => {
     tab: 'dashboard',      // 'dashboard' | 'history'
     query: '',             // поиск по задачам
     kind: 'all',           // 'all' | 'planned' | 'unplanned'
+    assignee: null,        // null | имя в нижнем регистре | '__none__' — задачи без исполнителя
   };
 
   const $ = sel => document.querySelector(sel);
@@ -112,7 +113,7 @@ const UI = (() => {
     if (archived) pill = '<span class="pill pill--done">Закрыт</span>';
     else if (notStarted) pill = `<span class="pill">Стартует ${Store.formatDate(s.startDate)}</span>`;
     else if (overdue) pill = '<span class="pill pill--soon">Срок вышел</span>';
-    else pill = `<span class="pill pill--live">Идёт · день ${m.elapsedDays} из ${m.totalDays}</span>`;
+    else pill = `<span class="pill pill--live">Идёт · рабочий день ${m.elapsedDays} из ${m.totalDays}</span>`;
 
     nameEl.textContent = s.name;
     metaEl.innerHTML = [
@@ -138,6 +139,12 @@ const UI = (() => {
     const m = Metrics.sprintMetrics(s);
     const v = Metrics.inMode(m, mode());
 
+    // Фильтр по человеку — вещь одного спринта: в другом его может не быть
+    if (view.assignee && view.assignee !== '__none__' &&
+        !m.byAssignee.some(p => p.name.toLowerCase() === view.assignee)) {
+      view.assignee = null;
+    }
+
     wrap.innerHTML = `
       ${heroHTML(s, m, v)}
       ${metricsHTML(m, v, s.status === 'archived')}
@@ -146,6 +153,7 @@ const UI = (() => {
       ${longRunnerBanner(s, m)}
       <div class="section-title">Доска задач</div>
       ${toolbarHTML(s)}
+      ${peopleStripHTML(m)}
       <div id="boardMount"></div>
     `;
     renderBoard();
@@ -174,7 +182,7 @@ const UI = (() => {
                ${v.carriedOut > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.carriedOut)}</b><span>Перенесено</span></div>` : ''}`
             : `<div class="hero__stat"><b>${Metrics.fmt(v.remaining)}</b><span>Осталось</span></div>
                ${v.dropped > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.dropped)}</b><span>Снято</span></div>` : ''}
-               <div class="hero__stat"><b>${m.daysLeft}</b><span>${Metrics.plural(m.daysLeft, 'день', 'дня', 'дней')} до конца</span></div>`}
+               <div class="hero__stat"><b>${m.daysLeft}</b><span>${Metrics.plural(m.daysLeft, 'рабочий день', 'рабочих дня', 'рабочих дней')} до конца</span></div>`}
         </div>
       </div>
       <div class="progress">
@@ -183,7 +191,7 @@ const UI = (() => {
       </div>
       <div class="progress-legend">
         <span><i style="background:var(--accent)"></i>Выполнено ${v.pct}%</span>
-        ${s.status === 'active' ? `<span><i style="background:var(--border-strong)"></i>Прошло времени ${m.timePct}%</span>` : ''}
+        ${s.status === 'active' ? `<span><i style="background:var(--border-strong)"></i>Прошло рабочего времени ${m.timePct}%</span>` : ''}
         <span>${archived ? closedHint(m, v) : statusHint(m, v)}</span>
       </div>
     </section>`;
@@ -303,7 +311,7 @@ const UI = (() => {
         foot: archived
           ? `Столько закрывали в среднем за день спринта`
           : m.daysLeft > 0
-            ? `Чтобы успеть, нужно ${Metrics.fmt(v.need)} ${v.unit}/день`
+            ? `Чтобы успеть, нужно ${Metrics.fmt(v.need)} ${v.unit}/день — по рабочим дням`
             : 'Время спринта вышло',
       })}
     </section>`;
@@ -444,10 +452,51 @@ const UI = (() => {
     return s.tasks.filter(t => {
       if (view.kind === 'planned' && t.unplanned) return false;
       if (view.kind === 'unplanned' && !t.unplanned) return false;
+      const who = String(t.assignee || '').trim().toLowerCase();
+      if (view.assignee === '__none__' && who) return false;
+      if (view.assignee && view.assignee !== '__none__' && who !== view.assignee) return false;
       if (!q) return true;
       return [t.title, t.key, t.type, t.assignee]
         .some(field => (field || '').toLowerCase().includes(q));
     });
+  }
+
+  /**
+   * Полоска участников над доской. Клик по человеку оставляет на доске только его задачи —
+   * так видно и распределение нагрузки, и кто чем занят, без отдельного экрана.
+   */
+  function peopleStripHTML(m) {
+    if (!m.participants && !m.unassignedTasks) return '';
+
+    const chip = ({ id, label, title, count, points, done, active }) => `
+      <button class="chip ${active ? 'is-active' : ''}" data-assignee="${esc(id)}" title="${esc(title)}">
+        <span class="chip__name">${esc(label)}</span>
+        <span class="chip__meta">${count} · ${Metrics.fmt(points)} SP</span>
+        <span class="chip__bar"><i style="width:${Metrics.pct(done, points)}%"></i></span>
+      </button>`;
+
+    const chips = m.byAssignee.map(p => chip({
+      id: p.name.toLowerCase(),
+      label: shortName(p.name),
+      title: `${p.name} — ${p.tasks} ${Metrics.plural(p.tasks, 'задача', 'задачи', 'задач')}, ${Metrics.fmt(p.points)} SP, закрыто ${Metrics.fmt(p.donePoints)} SP`,
+      count: p.tasks, points: p.points, done: p.donePoints,
+      active: view.assignee === p.name.toLowerCase(),
+    }));
+
+    if (m.unassignedTasks) {
+      chips.push(chip({
+        id: '__none__', label: 'Без исполнителя',
+        title: `${m.unassignedTasks} ${Metrics.plural(m.unassignedTasks, 'задача', 'задачи', 'задач')} без исполнителя`,
+        count: m.unassignedTasks, points: m.unassignedPoints, done: 0,
+        active: view.assignee === '__none__',
+      }));
+    }
+
+    return `
+      <div class="people-strip">
+        ${chips.join('')}
+        ${view.assignee ? '<button class="chip chip--reset" data-assignee="">Показать всех</button>' : ''}
+      </div>`;
   }
 
   /* ── Канбан ── */

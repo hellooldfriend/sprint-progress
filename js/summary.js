@@ -25,8 +25,9 @@ const Summary = (() => {
    * закрытый — как результат («чем кончилось»).
    *
    * @param {object} sprint
-   * @param {{withTasks?: boolean, withPeople?: boolean}} options
-   *        withTasks — перечень задач по колонкам, withPeople — участники и их нагрузка
+   * @param {{withTasks?: boolean, withPeople?: boolean, withPace?: boolean}} options
+   *        withTasks — перечень задач по колонкам, withPeople — участники и их нагрузка,
+   *        withPace — темп и прогноз «успеваем / нет»
    * @returns {string}
    */
   function forSprint(sprint, options = {}) {
@@ -43,7 +44,7 @@ const Summary = (() => {
     if (sprint.goal) lines.push(`🎯 Цель: ${sprint.goal}`);
     lines.push(archived
       ? `📅 ${Store.formatRange(sprint.startDate, sprint.endDate)} · спринт закрыт`
-      : `📅 ${Store.formatRange(sprint.startDate, sprint.endDate)} · день ${m.elapsedDays} из ${m.totalDays}`);
+      : `📅 ${Store.formatRange(sprint.startDate, sprint.endDate)} · рабочий день ${m.elapsedDays} из ${m.totalDays}`);
 
     if (m.isEmpty) {
       lines.push('', '🫙 Задач в спринте нет.');
@@ -114,7 +115,7 @@ const Summary = (() => {
         const dropped = byPoints ? `${n(m.droppedPoints)} SP` : `${m.droppedTasks} ${tasksWord(m.droppedTasks)}`;
         lines.push(`🚫 Снято со спринта ${dropped}: ${m.dropByReason.map(r => r.verb).join(', ')}`);
       }
-      lines.push(paceLine(m, byPoints));
+      if (options.withPace) lines.push(paceLine(m, byPoints));
     }
 
     /* ── Что требует внимания ── */

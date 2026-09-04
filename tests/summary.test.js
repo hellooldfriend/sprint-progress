@@ -21,7 +21,8 @@ test('сводка идущего спринта: шапка, цель, день
   const lines = text.split('\n');
   assert.equal(lines[0], '🏃 Спринт 24');
   assert.equal(lines[1], '🎯 Цель: Раскатить онбординг');
-  assert.match(lines[2], /день 6 из 14$/);
+  const m = app.Metrics.sprintMetrics(running(app));
+  assert.match(lines[2], new RegExp(`рабочий день ${m.elapsedDays} из ${m.totalDays}$`));
   assert.ok(text.includes('✅ Закрытие 38% — 15 из 40 SP · 2 из 5 задач'));
 });
 
@@ -36,14 +37,27 @@ test('velocity показывается только у закрытого сп�
   assert.ok(closed.startsWith('🏁 '), 'закрытый спринт помечен флажком');
 });
 
-test('идущий спринт описывает состояние: остаток, работа, темп', () => {
+test('идущий спринт описывает состояние: остаток и работа', () => {
   const app = loadApp();
   const text = app.Summary.forSprint(running(app));
   assert.ok(text.includes('🧩 Планово 34 SP, внепланово 6 SP — 15% объёма'));
   assert.ok(text.includes('⏳ Осталось 25 SP, из них в работе 13 SP'));
-  // 15 SP за 6 прошедших дней = 2.5; остаток 25 SP на 8 оставшихся = 3.1
-  assert.match(text, /📈 Темп 2\.5 SP\/день, нужно 3\.1 SP\/день — идём примерно по графику/);
   assert.ok(!text.includes('Не сделано'), 'итог подводится только у закрытого спринта');
+});
+
+test('темп в сводке появляется только по флагу', () => {
+  const app = loadApp();
+  const sprint = running(app);
+  assert.ok(!app.Summary.forSprint(sprint).includes('Темп'), 'по умолчанию темпа нет');
+
+  const withPace = app.Summary.forSprint(sprint, { withPace: true });
+  const line = withPace.split('\n').find(l => l.includes('Темп'));
+  assert.ok(line, 'с флагом строка есть');
+  assert.match(line, /^(🚀|📈|⚠️) Темп [\d.]+ SP\/день, нужно [\d.]+ SP\/день — /);
+
+  app.Store.archiveSprint(sprint.id);
+  assert.ok(!app.Summary.forSprint(app.Store.sprintById(sprint.id), { withPace: true }).includes('Темп'),
+    'у закрытого спринта прогноза нет даже с флагом');
 });
 
 test('закрытый спринт описывает результат и куда ушло несделанное', () => {

@@ -430,6 +430,22 @@ body.sidebar-collapsed .sidebar {
 .search input::placeholder { color: var(--faint); }
 .search input:focus { outline: none; border-color: var(--border-strong); background: var(--surface-2); }
 
+.people-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: flex; flex-direction: column; gap: 4px; min-width: 128px;
+  padding: 8px 11px 7px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  text-align: left; transition: border-color var(--t), background var(--t), transform var(--t);
+}
+.chip:hover { border-color: var(--border-strong); background: var(--surface-2); transform: translateY(-1px); }
+.chip.is-active { border-color: var(--accent); background: var(--accent-soft); }
+.chip__name { font-size: 12.5px; font-weight: 500; }
+.chip__meta { font-size: 11px; color: var(--faint); }
+.chip.is-active .chip__meta { color: var(--muted); }
+.chip__bar { height: 3px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.chip__bar > i { display: block; height: 100%; background: var(--green); border-radius: 99px; transition: width .5s var(--ease); }
+.chip--reset { min-width: 0; justify-content: center; color: var(--muted); font-size: 12.5px; }
+
 .board {
   display: grid;
   grid-template-columns: repeat(8, minmax(196px, 1fr));

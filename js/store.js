@@ -309,6 +309,20 @@ const Store = (() => {
   }
   const today = () => toISODate(new Date());
 
+  /** Понедельник–пятница. Праздники не учитываются — их нет в выгрузке и в календаре команды. */
+  function isWorkingDay(iso) {
+    const day = parseDate(iso).getDay();
+    return day !== 0 && day !== 6;
+  }
+
+  /** Рабочих дней между датами включительно; 0, если конец раньше начала. */
+  function workingDays(a, b) {
+    if (diffDays(a, b) < 0) return 0;
+    let count = 0;
+    for (const day of dateRange(a, b)) if (isWorkingDay(day)) count++;
+    return count;
+  }
+
   /** Список дат спринта включительно. */
   function dateRange(startDate, endDate) {
     const out = [];
@@ -334,7 +348,7 @@ const Store = (() => {
       settings: {
         metricMode: 'points', chartMode: 'burndown',
         statusMap: {}, csvMapping: null, sidebarCollapsed: false,
-        taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false,
+        taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false, summaryWithPace: false,
       },
       sprints: [],
     };
@@ -419,6 +433,7 @@ const Store = (() => {
       taskBaseUrl: String(rawSettings.taskBaseUrl || '').trim().slice(0, 300),
       summaryWithTasks: !!rawSettings.summaryWithTasks,
       summaryWithPeople: !!rawSettings.summaryWithPeople,
+      summaryWithPace: !!rawSettings.summaryWithPace,
     };
     const activeSprintId = sprints.some(s => s.id === raw.activeSprintId)
       ? raw.activeSprintId
@@ -991,6 +1006,7 @@ const Store = (() => {
     normalizeStatusKey: normalizeWord,
     // утилиты дат
     uid, toISODate, parseDate, addDays, diffDays, today, dateRange, formatDate, formatRange, normalizeDays,
+    isWorkingDay, workingDays,
     // состояние
     load, save, onChange, get, sprints, sortedSprints, activeSprint, sprintById, setSetting, taskUrl,
     // спринты

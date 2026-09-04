@@ -87,10 +87,11 @@ const Metrics = (() => {
     // Точность оценки: сколько SP закрывали на один потраченный человеко-день
     const estimateAccuracy = spent ? donePoints / spent : null;
 
-    // Прогресс по времени: сколько дней спринта уже прошло
-    const totalDays = Store.diffDays(sprint.startDate, sprint.endDate) + 1;
-    const elapsedRaw = Store.diffDays(sprint.startDate, Store.today()) + 1;
-    const elapsedDays = Math.min(totalDays, Math.max(0, elapsedRaw));
+    // Прогресс по времени — в рабочих днях: выходные не двигают ни план, ни ожидания
+    const todayISO = Store.today();
+    const totalDays = Store.workingDays(sprint.startDate, sprint.endDate);
+    const elapsedDays = todayISO < sprint.startDate ? 0
+      : Store.workingDays(sprint.startDate, todayISO < sprint.endDate ? todayISO : sprint.endDate);
     const daysLeft = Math.max(0, totalDays - elapsedDays);
     const timePct = pct(elapsedDays, totalDays);
 
@@ -249,11 +250,15 @@ const Metrics = (() => {
       ideal.push(null); // заполняется ниже, когда известен стартовый объём
     });
 
-    // Идеальная линия: от объёма на старте (плановый scope) до нуля к последнему дню
+    // Идеальная линия: от объёма на старте до нуля к последнему рабочему дню.
+    // Считается по рабочим дням, поэтому на выходных она горизонтальная
     const startScope = scope[0] || 0;
-    const lastIdx = Math.max(1, days.length - 1);
+    const totalWorking = Store.workingDays(sprint.startDate, sprint.endDate);
+    const steps = Math.max(1, totalWorking - 1);
+    let workedBefore = 0;
     for (let i = 0; i < days.length; i++) {
-      ideal[i] = Math.max(0, startScope * (1 - i / lastIdx));
+      ideal[i] = Math.max(0, startScope * (1 - workedBefore / steps));
+      if (Store.isWorkingDay(days[i])) workedBefore++;
     }
 
     // «Сегодня» на оси X (или -1, если спринт ещё не начался / уже закончился)

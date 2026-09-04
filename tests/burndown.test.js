@@ -74,15 +74,21 @@ test('снятая задача уменьшает объём в день сня
   assert.deepEqual(s.remaining.slice(0, 5), [40, 40, 30, 30, 30], 'остаток падает вместе с объёмом');
 });
 
-test('идеальная линия идёт от стартового объёма до нуля', () => {
+test('идеальная линия сгорает по рабочим дням и стоит на выходных', () => {
   const app = loadApp();
-  const sprint = runningSprint(app, [{ points: 26, status: 'todo' }]);
-  const s = app.Metrics.burnSeries(sprint, 'points');
+  const { Store } = app;
+  // Понедельник 10.08 — воскресенье 23.08: 14 календарных дней, 10 рабочих
+  const sprint = Store.createSprint({ name: 'Фиксированный', startDate: '2026-08-10', endDate: '2026-08-23' });
+  Store.addTask(sprint.id, { title: 'Объём', points: 27, status: 'todo' });
+  const s = app.Metrics.burnSeries(Store.sprintById(sprint.id), 'points');
 
-  assert.equal(s.ideal[0], 26);
-  assert.equal(s.ideal[13], 0);
-  assert.equal(s.ideal[6], 14, 'ровно половина пути — половина объёма');
+  assert.equal(s.ideal[0], 27, 'старт — весь объём');
+  assert.equal(s.ideal[5], s.ideal[6], 'суббота и воскресенье — плоский участок');
+  assert.ok(s.ideal[4] > s.ideal[5], 'а пятница до них ещё сгорала');
+  assert.equal(s.ideal[11], 0, 'к последней пятнице — ноль');
+  assert.equal(s.ideal[13], 0, 'выходные после — тоже ноль, не отрицательное');
   assert.ok(s.ideal.every((v, i) => i === 0 || v <= s.ideal[i - 1]), 'линия монотонно убывает');
+  assert.ok(Math.abs(s.ideal[1] - 27 * (1 - 1 / 9)) < 1e-9, 'шаг — девятая часть: десять рабочих дней, девять переходов');
 });
 
 test('режим «задачи» считает штуки, а не оценки', () => {

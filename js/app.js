@@ -116,8 +116,10 @@
     const { startDate, endDate } = form;
     if (!startDate.value || !endDate.value) return;
     const days = Store.diffDays(startDate.value, endDate.value) + 1;
+    const working = Store.workingDays(startDate.value, endDate.value);
     $('#sprintDurationHint').textContent = days > 0
-      ? `Длительность: ${days} ${Metrics.plural(days, 'день', 'дня', 'дней')}${days === 14 ? ' — стандартный двухнедельный спринт' : ''}.`
+      ? `Длительность: ${days} ${Metrics.plural(days, 'день', 'дня', 'дней')}, из них ${working} ${Metrics.plural(working, 'рабочий', 'рабочих', 'рабочих')}` +
+        `${days === 14 ? ' — стандартный двухнедельный спринт' : ''}.`
       : 'Дата окончания должна быть не раньше даты начала.';
   }
 
@@ -581,6 +583,13 @@
     if (kindBtn) {
       UI.view.kind = kindBtn.dataset.kind;
       UI.renderDashboard();
+      return;
+    }
+    const personChip = e.target.closest('[data-assignee]');
+    if (personChip) {
+      const id = personChip.dataset.assignee;
+      UI.view.assignee = !id || UI.view.assignee === id ? null : id;   // повторный клик снимает фильтр
+      UI.renderDashboard();
     }
   });
 
@@ -853,6 +862,7 @@
     $('#summaryText').value = Summary.forSprint(sprint, {
       withTasks: $('#summaryWithTasks').checked,
       withPeople: $('#summaryWithPeople').checked,
+      withPace: $('#summaryWithPace').checked,
     });
     renderBaseUrlHint();
   }
@@ -872,6 +882,7 @@
     const settings = Store.get().settings;
     $('#summaryWithTasks').checked = settings.summaryWithTasks;
     $('#summaryWithPeople').checked = settings.summaryWithPeople;
+    $('#summaryWithPace').checked = settings.summaryWithPace;
     $('#taskBaseUrl').value = settings.taskBaseUrl;
     renderSummary();
     openModal('summaryModal');
@@ -886,6 +897,10 @@
   });
   $('#summaryWithPeople').addEventListener('change', e => {
     Store.setSetting('summaryWithPeople', e.target.checked);
+    renderSummary();
+  });
+  $('#summaryWithPace').addEventListener('change', e => {
+    Store.setSetting('summaryWithPace', e.target.checked);
     renderSummary();
   });
   $('#taskBaseUrl').addEventListener('input', e => {

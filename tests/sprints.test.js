@@ -192,6 +192,7 @@ test('настройки нормализуются при импорте, вк�
   assert.deepEqual(bare.settings, {
     metricMode: 'points', chartMode: 'burndown', statusMap: {}, csvMapping: null,
     sidebarCollapsed: false, taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false,
+    summaryWithPace: false,
   });
 });
 
@@ -229,11 +230,12 @@ test('настройки сводки переживают импорт', () => 
   const { Store } = loadApp();
   const state = Store.parseImport(JSON.stringify({
     sprints: [],
-    settings: { taskBaseUrl: '  jira.com/browse  ', summaryWithTasks: 1, summaryWithPeople: 0 },
+    settings: { taskBaseUrl: '  jira.com/browse  ', summaryWithTasks: 1, summaryWithPeople: 0, summaryWithPace: 'да' },
   }));
   assert.equal(state.settings.taskBaseUrl, 'jira.com/browse');
   assert.equal(state.settings.summaryWithTasks, true);
   assert.equal(state.settings.summaryWithPeople, false);
+  assert.equal(state.settings.summaryWithPace, true);
 });
 
 test('подписка на изменения зовётся при каждом сохранении', () => {
