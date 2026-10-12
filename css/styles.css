@@ -769,6 +769,155 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.6); curs
 @keyframes toastIn { from { opacity: 0; transform: translateX(16px) scale(.96); } }
 @keyframes toastOut { to { opacity: 0; transform: translateX(16px) scale(.96); } }
 
+/* ─────────────── 10a. Эпики: Гант ─────────────── */
+.dot--red { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+.tag--over { color: #fca5a5; background: var(--red-soft); border-color: rgba(239, 68, 68, .26); }
+.btn.is-on { color: var(--text); border-color: var(--border-strong); }
+
+.gantt {
+  --row: 54px;
+  --weekend: rgba(255, 255, 255, .025);
+  position: relative;
+  overflow: auto;
+  max-height: calc(100vh - 150px);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface);
+  overscroll-behavior-x: contain;
+}
+.gantt__head, .gantt__row { display: flex; width: calc(var(--left) + var(--track)); }
+
+.gantt__head { position: sticky; top: 0; z-index: 4; height: 52px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.gantt__corner {
+  position: sticky; left: 0; z-index: 5; flex: none; width: var(--left);
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 8px;
+  padding: 0 14px 8px; background: var(--surface-2); border-right: 1px solid var(--border);
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
+}
+.gantt__corner span:last-child { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.gantt__scale { position: relative; flex: none; width: var(--track); }
+.gantt__months, .gantt__ticks { position: relative; height: 26px; }
+.gantt__month, .gantt__tick {
+  position: absolute; top: 0; height: 100%;
+  display: flex; align-items: center; overflow: hidden; white-space: nowrap;
+  border-left: 1px solid var(--border);
+}
+.gantt__month { padding-left: 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.gantt__tick { justify-content: center; font-size: 10.5px; color: var(--faint); font-family: var(--mono); border-left-color: rgba(255,255,255,.04); }
+.gantt__tick--week { justify-content: flex-start; padding-left: 4px; border-left-color: var(--border); }
+.gantt__tick.is-weekend { background: var(--weekend); color: #4b4b55; }
+.gantt__tick.is-today { color: #fff; background: var(--red); border-radius: 4px; }
+
+.gantt__body { position: relative; }
+.gantt__row { height: var(--row); border-bottom: 1px solid var(--border); }
+.gantt__row:last-of-type { border-bottom: none; }
+.gantt__label {
+  position: sticky; left: 0; z-index: 2; flex: none; width: var(--left);
+  display: flex; flex-direction: column; justify-content: center; gap: 5px;
+  padding: 0 14px; background: var(--surface); border-right: 1px solid var(--border);
+  cursor: pointer; min-width: 0; transition: background var(--t);
+}
+.gantt__row:hover .gantt__label { background: var(--surface-2); }
+.gl__line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.gl__key { font-family: var(--mono); font-size: 11px; color: var(--faint); flex: none; }
+.gl__key a { color: inherit; text-decoration: none; }
+.gl__key a:hover { color: var(--accent); text-decoration: underline; }
+.gl__title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gl__meta { gap: 5px; }
+.gl__meta .tag { padding: 1px 6px; }
+.gl__warn {
+  width: 16px; height: 16px; border-radius: 99px; flex: none;
+  display: grid; place-items: center; font-size: 11px; font-weight: 700; cursor: help;
+}
+.gl__warn--warn { color: #fbbf24; background: var(--amber-soft); }
+.gl__warn--err { color: #fca5a5; background: var(--red-soft); }
+.gantt__row.is-closed .gl__title { color: var(--muted); }
+
+/* Шкала строки: выходные затенены, понедельники отмечены линией — шкала всегда начинается с понедельника */
+.gantt__track {
+  position: relative; flex: none; width: var(--track);
+  background-image:
+    linear-gradient(90deg, var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, transparent calc(var(--day) * 5), var(--weekend) calc(var(--day) * 5));
+  background-size: calc(var(--day) * 7) 100%;
+}
+.gantt__row:hover .gantt__track { background-color: rgba(255,255,255,.012); }
+
+/* Строка человека */
+.gantt__row--group { height: 40px; background: var(--surface-2); }
+.gantt__row--group .gantt__label { flex-direction: row; align-items: center; justify-content: space-between; background: var(--surface-2); cursor: default; }
+.gantt__row--group:hover .gantt__label { background: var(--surface-2); }
+.gl__person { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gl__sum { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+.load {
+  position: absolute; top: 9px; bottom: 9px; border-radius: 5px;
+  display: grid; place-items: center; font-size: 10.5px; font-family: var(--mono); font-weight: 600;
+  overflow: hidden; cursor: help;
+}
+.load.is-ok   { background: var(--green-soft); color: #4ade80; }
+.load.is-warn { background: var(--amber-soft); color: #fbbf24; }
+.load.is-over { background: rgba(239, 68, 68, .28); color: #fecaca; box-shadow: inset 0 0 0 1px rgba(239,68,68,.5); }
+.gantt__note, .gantt__place {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font-size: 11.5px; color: var(--faint); white-space: nowrap; pointer-events: none;
+}
+.gantt__note { left: 12px; position: sticky; display: inline-block; margin-left: 12px; transform: none; top: auto; line-height: 40px; }
+.gantt__place { padding: 4px 10px; border: 1px dashed var(--border-strong); border-radius: 99px; }
+.gantt__row:not(.gantt__row--group) .gantt__track:has(.gantt__place) { cursor: crosshair; }
+.gantt__row:hover .gantt__place { color: var(--muted); border-color: var(--accent); }
+
+/* Цель переноса в другую дорожку */
+.gantt__row.is-lane-target, .gantt__row.is-lane-target .gantt__label { background: rgba(139, 92, 246, .08); }
+.gantt__row--group.is-lane-target .gl__person { color: #c4b5fd; }
+
+/* Полоса эпика: цвет — статус, задаётся через --c */
+.bar {
+  position: absolute; top: 10px; bottom: 10px; z-index: 1;
+  display: flex; align-items: center;
+  border-radius: 7px; overflow: hidden;
+  background: color-mix(in srgb, var(--c) 26%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--c) 60%, transparent);
+  border-left: 3px solid var(--c);
+  cursor: grab; user-select: none; touch-action: none;
+  transition: box-shadow var(--t), filter var(--t);
+}
+.bar:hover { filter: brightness(1.15); box-shadow: var(--shadow); }
+.bar.is-dragging { cursor: grabbing; z-index: 3; box-shadow: 0 0 0 2px var(--accent), var(--shadow-lg); transition: none; }
+.bar__label {
+  flex: 1; min-width: 0; padding: 0 8px;
+  font-size: 11px; font-weight: 500; font-family: var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.bar.is-tiny .bar__label { display: none; }
+.bar__h { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 2; }
+.bar__h--l { left: 0; }
+.bar__h--r { right: 0; }
+.bar__h::after {
+  content: ""; position: absolute; top: 30%; bottom: 30%; left: 3px; width: 2px; border-radius: 2px;
+  background: rgba(255,255,255,.5); opacity: 0; transition: opacity var(--t);
+}
+.bar:hover .bar__h::after { opacity: 1; }
+.bar.is-squeezed { box-shadow: 0 0 0 1.5px var(--red); }
+.bar.is-overdue { background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(239,68,68,.18) 6px 12px); }
+.gantt__row.is-closed .bar { opacity: .55; }
+
+.gantt__today {
+  position: absolute; top: 0; bottom: 0; width: 0; z-index: 1; pointer-events: none;
+  border-left: 1.5px dashed rgba(239, 68, 68, .7);
+}
+.gantt__today span { display: none; }
+.gantt__nothing { padding: 36px 16px; text-align: center; color: var(--faint); font-size: 13px; }
+
+.gantt-tip {
+  position: fixed; z-index: 200; pointer-events: none;
+  padding: 6px 10px; border-radius: 8px;
+  background: var(--surface-3); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg);
+  font-size: 12px; white-space: nowrap;
+}
+
+.epic-calc { display: flex; align-items: center; gap: 12px; }
+.epic-calc .hint { flex: 1; }
+.epic-calc .btn { flex: none; }
+
 /* ─────────────── 11. Адаптив ─────────────── */
 .scrim { display: none; }
 
@@ -807,6 +956,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.6); curs
   .hero, .card { padding: 16px; }
   .hero__side { gap: 18px; }
   .modal { padding: 10px; }
+  .gl__meta .tag:not(.tag--points) { display: none; }
+  .epic-calc { flex-direction: column; align-items: stretch; }
 }
 
 @media (prefers-reduced-motion: reduce) {

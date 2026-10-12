@@ -3,7 +3,7 @@
 
    Исходники — обычные скрипты для браузера, без экспортов: в проекте
    нет сборки, и заводить её ради тестов не хочется. Поэтому склеиваем
-   три файла в тело одной функции и возвращаем их модули наружу.
+   исходники в тело одной функции и возвращаем их модули наружу.
    Каждый вызов loadApp() создаёт свежие Store/Metrics со своим
    состоянием — тесты не протекают друг в друга.
    ============================================================ */
@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const SOURCES = ['js/store.js', 'js/metrics.js', 'js/charts.js', 'js/summary.js'];
+const SOURCES = ['js/store.js', 'js/metrics.js', 'js/epics.js', 'js/charts.js', 'js/summary.js'];
 
 /** Минимальная замена localStorage: обычный объект в памяти. */
 function memoryStorage() {
@@ -37,7 +37,7 @@ function buildFactorySource() {
   factorySource =
     '(function (localStorage, console, document, URL, Blob) {\n' +
     parts.join('\n') +
-    '\nreturn { Store, Metrics, Charts, Summary };\n})';
+    '\nreturn { Store, Metrics, Epics, Charts, Summary };\n})';
   return factorySource;
 }
 

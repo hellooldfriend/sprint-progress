@@ -38,6 +38,10 @@
         <svg class="ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         История
       </button>
+      <button class="nav__item" data-view="epics">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M4 6h9M8 12h11M6 18h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        Эпики
+      </button>
     </nav>
 
     <div class="sidebar__section">
@@ -88,7 +92,22 @@
         <div class="topbar__meta" id="sprintMeta"></div>
       </div>
 
-      <div class="topbar__actions">
+      <div class="topbar__actions" id="epicActions" hidden>
+        <button class="btn btn--ghost btn--sm" data-epic-act="export" title="План эпиков в CSV — чтобы вернуть даты и HLE в Jira">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          CSV
+        </button>
+        <button class="btn btn--ghost btn--sm" data-epic-act="import">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M4 6h10M4 12h16M4 18h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Импорт из Jira
+        </button>
+        <button class="btn btn--primary btn--sm" data-epic-act="new">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Эпик
+        </button>
+      </div>
+
+      <div class="topbar__actions" id="sprintActions">
         <div class="segmented" id="metricMode" role="group" aria-label="Единица измерения метрик">
           <button data-mode="points" class="is-active">Story points</button>
           <button data-mode="tasks">Задачи</button>
@@ -148,6 +167,11 @@
     <!-- ───────── История ───────── -->
     <section class="view" id="view-history" hidden>
       <div id="historyBody"><!-- JS --></div>
+    </section>
+
+    <!-- ───────── Эпики ───────── -->
+    <section class="view" id="view-epics" hidden>
+      <div id="epicsBody"><!-- JS --></div>
     </section>
   </main>
 </div>
@@ -473,6 +497,136 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
   </div>
 </div>
 
+<div class="modal" id="epicModal" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="epicModalTitle">
+    <header class="modal__head">
+      <h2 id="epicModalTitle">Новый эпик</h2>
+      <button class="icon-btn" data-close aria-label="Закрыть">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <form class="modal__body form" id="epicForm">
+      <label class="field">
+        <span class="field__label">Тема</span>
+        <input class="input" name="title" placeholder="Новый онбординг для B2B" required maxlength="240" autocomplete="off" />
+      </label>
+      <div class="grid-2">
+        <label class="field">
+          <span class="field__label">Ключ проблемы</span>
+          <input class="input" name="key" placeholder="DEV-100" maxlength="32" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field__label">Идентификатор проблемы</span>
+          <input class="input" name="issueId" placeholder="104233" maxlength="32" autocomplete="off" />
+        </label>
+      </div>
+      <div class="grid-2">
+        <label class="field">
+          <span class="field__label">Исполнитель</span>
+          <input class="input" name="assignee" list="epicPeople" maxlength="60" autocomplete="off" />
+          <datalist id="epicPeople"></datalist>
+        </label>
+        <label class="field">
+          <span class="field__label">Автор <em>— опционально</em></span>
+          <input class="input" name="author" list="epicPeople" maxlength="60" autocomplete="off" />
+        </label>
+      </div>
+      <div class="grid-2">
+        <label class="field">
+          <span class="field__label">Статус</span>
+          <select class="input" name="status" id="epicStatusSelect"></select>
+        </label>
+        <label class="field">
+          <span class="field__label">HLE, человеко-дней</span>
+          <input class="input" type="number" name="hle" min="0" max="9999" step="0.5" placeholder="—" />
+        </label>
+      </div>
+      <div class="grid-2">
+        <label class="field">
+          <span class="field__label">Planned Start</span>
+          <input class="input" type="date" name="plannedStart" />
+        </label>
+        <label class="field">
+          <span class="field__label">Planned End</span>
+          <input class="input" type="date" name="plannedEnd" />
+        </label>
+      </div>
+      <div class="epic-calc">
+        <p class="hint" id="epicWindowHint"></p>
+        <button type="button" class="btn btn--ghost btn--sm" id="btnEpicFitHle">Окончание по HLE</button>
+      </div>
+      <p class="hint hint--tiny" id="epicCreatedHint"></p>
+      <footer class="modal__foot">
+        <button type="button" class="btn btn--danger-ghost" id="btnDeleteEpic" hidden>Удалить</button>
+        <button type="button" class="btn btn--ghost" id="btnUnplanEpic" hidden title="Убрать Planned Start и End">Снять с плана</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn--ghost" data-close>Отмена</button>
+        <button type="submit" class="btn btn--primary">Сохранить</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<div class="modal modal--wide" id="epicImportModal" hidden>
+  <div class="modal__backdrop" data-close></div>
+  <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="epicImportTitle">
+    <header class="modal__head">
+      <h2 id="epicImportTitle">Импорт эпиков из Jira</h2>
+      <button class="icon-btn" data-close aria-label="Закрыть">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <form class="modal__body form" id="epicImportForm">
+      <div class="field">
+        <span class="field__label">
+          Файл выгрузки
+          <em>— в Jira: фильтр по эпикам → Экспорт → CSV (текущие поля)</em>
+        </span>
+        <div class="filedrop" id="epicCsvDrop">
+          <input type="file" id="epicCsvFile" accept=".csv,text/csv,text/plain" hidden />
+          <button type="button" class="btn btn--ghost btn--sm" id="epicCsvPick">Выбрать CSV-файл</button>
+          <span class="hint">или перетащите файл сюда / вставьте содержимое ниже</span>
+        </div>
+        <textarea class="input input--area" name="csvText" rows="4" spellcheck="false"
+                  placeholder="Тема,Ключ проблемы,Идентификатор проблемы,Статус,Исполнитель,Автор,Создано,HLE,Planned Start,Planned End"></textarea>
+      </div>
+
+      <div class="field" id="epicMappingBlock" hidden>
+        <span class="field__label">Колонки <em>— распознаны автоматически, можно поправить</em></span>
+        <div class="map-grid" id="epicMapping"></div>
+      </div>
+
+      <div class="field" id="epicStatusMapBlock" hidden>
+        <span class="field__label">
+          Статусы, которых нет в словаре
+          <em>— сопоставьте один раз, дальше запомнится</em>
+        </span>
+        <div class="map-grid" id="epicStatusMapList"></div>
+      </div>
+
+      <label class="switch">
+        <input type="checkbox" name="overwritePlan" />
+        <span class="switch__track"><span class="switch__thumb"></span></span>
+        <span class="switch__text">
+          <strong>Взять даты и HLE из файла</strong>
+          <em>По умолчанию из файла заполняются только пустые: план, который вы двигали здесь, не откатится</em>
+        </span>
+      </label>
+
+      <div class="field">
+        <span class="field__label">Предпросмотр</span>
+        <div class="bulk-preview" id="epicPreview"></div>
+      </div>
+
+      <footer class="modal__foot">
+        <button type="button" class="btn btn--ghost" data-close>Отмена</button>
+        <button type="submit" class="btn btn--primary" id="epicImportSubmit">Импортировать</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
 <div class="modal modal--sm" id="confirmModal" hidden>
   <div class="modal__backdrop" data-close></div>
   <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
@@ -491,10 +645,12 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
 
 <script src="js/store.js"></script>
 <script src="js/metrics.js"></script>
+<script src="js/epics.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/filesync.js"></script>
 <script src="js/summary.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/roadmap.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

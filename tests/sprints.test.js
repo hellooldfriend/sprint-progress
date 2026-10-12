@@ -192,8 +192,10 @@ test('настройки нормализуются при импорте, вк�
   assert.deepEqual(bare.settings, {
     metricMode: 'points', chartMode: 'burndown', statusMap: {}, csvMapping: null,
     sidebarCollapsed: false, taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false,
-    summaryWithPace: false,
+    summaryWithPace: false, roadmapZoom: 'month', roadmapGroup: 'assignee', roadmapShowClosed: false,
+    epicCsvMapping: null, epicStatusMap: {},
   });
+  assert.deepEqual(bare.epics, [], 'бэкап без эпиков — пустой план, а не ошибка');
 });
 
 test('импорт мусора отклоняется с понятной ошибкой', () => {

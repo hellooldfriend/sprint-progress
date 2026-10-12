@@ -7,7 +7,7 @@ const UI = (() => {
 
   /** Локальное состояние интерфейса (не сохраняется). */
   const view = {
-    tab: 'dashboard',      // 'dashboard' | 'history'
+    tab: 'dashboard',      // 'dashboard' | 'history' | 'epics'
     query: '',             // поиск по задачам
     kind: 'all',           // 'all' | 'planned' | 'unplanned'
     assignee: null,        // null | имя в нижнем регистре | '__none__' — задачи без исполнителя
@@ -90,6 +90,22 @@ const UI = (() => {
     const s = Store.activeSprint();
     const nameEl = $('#sprintName');
     const metaEl = $('#sprintMeta');
+
+    // Эпики живут вне спринтов: у вкладки свои заголовок и действия
+    const epicsTab = view.tab === 'epics';
+    $('#epicActions').hidden = !epicsTab;
+    $('#sprintActions').hidden = epicsTab;
+    if (epicsTab) {
+      const all = Store.epics();
+      const open = all.filter(e => !Store.isEpicClosed(e));
+      const hle = open.reduce((acc, e) => acc + (e.hle || 0), 0);
+      nameEl.textContent = 'Планирование эпиков';
+      metaEl.innerHTML = all.length
+        ? `<span>${open.length} ${Metrics.plural(open.length, 'открытый эпик', 'открытых эпика', 'открытых эпиков')}</span>
+           <span>· HLE ${Metrics.fmt(hle)} п/д</span>`
+        : '<span>Загрузите эпики из Jira или заведите вручную</span>';
+      return;
+    }
 
     // Переключатель единиц
     document.querySelectorAll('#metricMode button').forEach(b =>
@@ -742,6 +758,7 @@ const UI = (() => {
       b.classList.toggle('is-active', b.dataset.view === tab));
     $('#view-dashboard').hidden = tab !== 'dashboard';
     $('#view-history').hidden = tab !== 'history';
+    $('#view-epics').hidden = tab !== 'epics';
     render();
   }
 
@@ -749,6 +766,7 @@ const UI = (() => {
     renderSidebar();
     renderTopbar();
     if (view.tab === 'dashboard') renderDashboard();
+    else if (view.tab === 'epics') Roadmap.render();
     else renderHistory();
   }
 

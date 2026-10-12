@@ -16,7 +16,10 @@
                  unplanned:boolean, dropped:boolean, dropReason:string, assignee:string,
                  carriedFrom:{id,name}|null, carriedTo:{id,name}|null, carryCount:number,
                  createdAt:ISO, doneAt:ISO|null, droppedAt:ISO|null }]
-     }]
+     }],
+     epics: [{ id, key:string, issueId:string, title, author, assignee, status,
+               createdAt:ISO, plannedStart:'YYYY-MM-DD'|null, plannedEnd:'YYYY-MM-DD'|null,
+               hle:number|null }]   // HLE — высокоуровневая оценка в человеко-днях
    }
    ============================================================ */
 const Store = (() => {
@@ -54,6 +57,56 @@ const Store = (() => {
   const DROP_REASON_IDS = DROP_REASONS.map(r => r.id);
   const dropReasonById = id => DROP_REASONS.find(r => r.id === id) || DROP_REASONS[0];
   const STATUS_IDS = STATUSES.map(s => s.id);
+
+  /**
+   * Статусы эпиков — свой workflow, длиннее спринтового: эпик сначала проходит требования и оценку.
+   * closed — эпик больше не занимает людей: на загрузку и предупреждения он не влияет.
+   */
+  const EPIC_STATUSES = [
+    { id: 'backlog',           label: 'Backlog',                 color: 'var(--faint)',  dot: 'dot--muted' },
+    { id: 'requirements',      label: 'Requirements definition', color: 'var(--amber)',  dot: 'dot--amber' },
+    { id: 'ready_for_hle',     label: 'Ready for HLE',           color: 'var(--accent)', dot: 'dot--accent' },
+    { id: 'development',       label: 'Development',             color: 'var(--blue)',   dot: 'dot--blue' },
+    { id: 'ready_for_testing', label: 'Ready for Testing',       color: 'var(--indigo)', dot: 'dot--indigo' },
+    { id: 'testing',           label: 'Testing',                 color: 'var(--cyan)',   dot: 'dot--cyan' },
+    { id: 'ready_for_deploy',  label: 'Ready for Deploy',        color: 'var(--teal)',   dot: 'dot--teal' },
+    { id: 'done',              label: 'Готово',                  color: 'var(--green)',  dot: 'dot--green', closed: true },
+    { id: 'rejected',          label: 'Rejected',                color: 'var(--red)',    dot: 'dot--red',   closed: true },
+  ];
+  const EPIC_STATUS_IDS = EPIC_STATUSES.map(s => s.id);
+  const epicStatusById = id => EPIC_STATUSES.find(s => s.id === id) || EPIC_STATUSES[0];
+  const isEpicClosed = epic => !!epicStatusById(epic.status).closed;
+
+  /** Как статусы эпиков пишут в Jira — ключи нормализованы так же, как у задач. */
+  const EPIC_STATUS_ALIASES = {
+    backlog:           ['backlog', 'бэклог', 'беклог', 'open', 'new', 'to do', 'todo', 'открыто', 'новый', 'новая'],
+    requirements:      ['requirements definition', 'requirements', 'requirement definition', 'analysis', 'in analysis',
+                        'определение требований', 'сбор требований', 'требования', 'анализ'],
+    ready_for_hle:     ['ready for hle', 'ready to hle', 'ready for estimation', 'hle', 'estimation',
+                        'готово к оценке', 'готов к оценке', 'оценка'],
+    development:       ['development', 'in development', 'in progress', 'разработка', 'в разработке', 'в работе'],
+    ready_for_testing: ['ready for testing', 'ready to test', 'ready for test', 'ready for qa',
+                        'готово к тестированию', 'к тестированию'],
+    testing:           ['testing', 'in testing', 'qa', 'тестирование', 'на тестировании'],
+    ready_for_deploy:  ['ready for deploy', 'ready to deploy', 'ready for release', 'готово к деплою', 'готово к релизу'],
+    done:              ['готово', 'done', 'closed', 'resolved', 'complete', 'completed',
+                        'закрыто', 'закрыт', 'выполнено', 'завершено'],
+    rejected:          ['rejected', 'declined', 'cancelled', 'canceled', 'won\'t do', 'wont do',
+                        'отклонено', 'отклонен', 'отменено', 'отменен'],
+  };
+
+  /** Строка → id статуса эпика с учётом ручного сопоставления, либо null. */
+  function matchEpicStatus(str) {
+    const n = normalizeWord(str);
+    if (!n) return null;
+    if (EPIC_STATUS_IDS.includes(n)) return n;
+    const custom = state && state.settings && state.settings.epicStatusMap;
+    if (custom && EPIC_STATUS_IDS.includes(custom[n])) return custom[n];
+    for (const [id, aliases] of Object.entries(EPIC_STATUS_ALIASES)) {
+      if (aliases.includes(n)) return id;
+    }
+    return null;
+  }
 
   /**
    * Синонимы статусов для массового ввода: как их пишут в Jira, Kaiten и в голове.
@@ -349,8 +402,11 @@ const Store = (() => {
         metricMode: 'points', chartMode: 'burndown',
         statusMap: {}, csvMapping: null, sidebarCollapsed: false,
         taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false, summaryWithPace: false,
+        roadmapZoom: 'month', roadmapGroup: 'assignee', roadmapShowClosed: false,
+        epicCsvMapping: null, epicStatusMap: {},
       },
       sprints: [],
+      epics: [],
     };
   }
 
@@ -362,6 +418,31 @@ const Store = (() => {
   function normalizeDays(value) {
     const num = Number(value);
     return Number.isFinite(num) && num > 0 ? Math.round(num * 10) / 10 : null;
+  }
+
+  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const isoOrNull = v => (ISO_DATE_RE.test(String(v || '')) ? String(v) : null);
+
+  /** Эпик в валидной форме. Даты плана либо обе, либо ни одной — полоса на Ганте без конца не рисуется. */
+  function normalizeEpic(e) {
+    let plannedStart = isoOrNull(e.plannedStart);
+    let plannedEnd = isoOrNull(e.plannedEnd);
+    if (plannedStart && !plannedEnd) plannedEnd = plannedStart;
+    if (!plannedStart && plannedEnd) plannedStart = plannedEnd;
+    if (plannedStart && diffDays(plannedStart, plannedEnd) < 0) [plannedStart, plannedEnd] = [plannedEnd, plannedStart];
+    return {
+      id: e.id || uid(),
+      key: String(e.key || '').trim().toUpperCase().slice(0, 32),
+      issueId: String(e.issueId || '').trim().slice(0, 32),
+      title: String(e.title || 'Без названия').slice(0, 240),
+      author: String(e.author || '').trim().slice(0, 60),
+      assignee: String(e.assignee || '').trim().slice(0, 60),
+      status: EPIC_STATUS_IDS.includes(e.status) ? e.status : 'backlog',
+      createdAt: e.createdAt || new Date().toISOString(),
+      plannedStart,
+      plannedEnd,
+      hle: normalizeDays(e.hle),
+    };
   }
 
   /** Приводит любые входные данные (в т.ч. импорт) к валидной форме. */
@@ -434,12 +515,25 @@ const Store = (() => {
       summaryWithTasks: !!rawSettings.summaryWithTasks,
       summaryWithPeople: !!rawSettings.summaryWithPeople,
       summaryWithPace: !!rawSettings.summaryWithPace,
+      roadmapZoom: ['week', 'month', 'quarter'].includes(rawSettings.roadmapZoom) ? rawSettings.roadmapZoom : 'month',
+      roadmapGroup: rawSettings.roadmapGroup === 'none' ? 'none' : 'assignee',
+      roadmapShowClosed: !!rawSettings.roadmapShowClosed,
+      epicCsvMapping: rawSettings.epicCsvMapping && typeof rawSettings.epicCsvMapping === 'object'
+        ? rawSettings.epicCsvMapping : null,
+      epicStatusMap: {},
     };
+    if (rawSettings.epicStatusMap && typeof rawSettings.epicStatusMap === 'object') {
+      Object.entries(rawSettings.epicStatusMap).forEach(([from, to]) => {
+        if (EPIC_STATUS_IDS.includes(to)) settings.epicStatusMap[normalizeWord(from)] = to;
+      });
+    }
+    // Бэкапы до появления эпиков их не содержат — это не ошибка, а пустой план
+    const epics = Array.isArray(raw.epics) ? raw.epics.filter(Boolean).map(normalizeEpic) : [];
     const activeSprintId = sprints.some(s => s.id === raw.activeSprintId)
       ? raw.activeSprintId
       : (sprints.find(s => s.status === 'active') || sprints[0] || {}).id || null;
 
-    return { ...base, sprints, settings, activeSprintId };
+    return { ...base, sprints, epics, settings, activeSprintId };
   }
 
   function load() {
@@ -591,7 +685,10 @@ const Store = (() => {
   const CSV_SPRINT_HINTS = ['sprint', 'спринт'];
 
   const JIRA_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-                        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+                        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+                        // русская локаль Jira: «12/окт/26 3:04 PM»
+                        'янв': 0, 'фев': 1, 'мар': 2, 'апр': 3, 'май': 4, 'мая': 4, 'июн': 5,
+                        'июл': 6, 'авг': 7, 'сен': 8, 'окт': 9, 'ноя': 10, 'дек': 11 };
 
   /**
    * Дата из выгрузки → ISO. Jira по умолчанию отдаёт «13/Aug/26 3:04 PM»,
@@ -601,9 +698,9 @@ const Store = (() => {
     const raw = String(str || '').trim();
     if (!raw) return null;
 
-    const jira = raw.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?:\s*([AaPp])[Mm])?)?/);
+    const jira = raw.match(/^(\d{1,2})\/([A-Za-zА-Яа-яЁё]{3,4})\.?\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?:\s*([AaPp])[Mm])?)?/);
     if (jira) {
-      const month = JIRA_MONTHS[jira[2].toLowerCase()];
+      const month = JIRA_MONTHS[jira[2].toLowerCase().slice(0, 3)];
       if (month !== undefined) {
         let year = Number(jira[3]);
         if (year < 100) year += 2000;
@@ -625,6 +722,18 @@ const Store = (() => {
 
     const ts = Date.parse(raw);
     return isNaN(ts) ? null : new Date(ts).toISOString();
+  }
+
+  /**
+   * Дата без времени → 'YYYY-MM-DD'. ISO берём как есть: через Date.parse «2026-10-12»
+   * читается как полночь UTC и западнее Гринвича превращается в 11-е.
+   */
+  function parseDateOnly(str) {
+    const raw = String(str || '').trim();
+    const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (iso) return iso[1];
+    const full = parseDateTime(raw);
+    return full ? toISODate(new Date(full)) : null;
   }
 
   /** Определяет разделитель по первой строке: Jira отдаёт запятую, локали — точку с запятой. */
@@ -670,12 +779,12 @@ const Store = (() => {
   }
 
   /** Угадывает соответствие «наше поле → индекс колонки» по заголовкам. */
-  function detectCsvMapping(headers) {
+  function detectCsvMapping(headers, fieldHints = CSV_FIELD_HINTS) {
     const norm = headers.map(h => normalizeWord(h));
     const mapping = {};
 
-    CSV_FIELDS.forEach(field => {
-      const hints = CSV_FIELD_HINTS[field];
+    Object.keys(fieldHints).forEach(field => {
+      const hints = fieldHints[field];
       let idx = norm.findIndex(h => hints.includes(h));
       if (idx === -1) {
         // Jira называет кастомные поля так: «Custom field (Story Points)»
@@ -969,6 +1078,168 @@ const Store = (() => {
     save();
   }
 
+  /* ───────────── Эпики: CSV из Jira ───────────── */
+
+  /** Колонки выгрузки эпиков. Русские названия — ровно как их отдаёт русская Jira. */
+  const EPIC_CSV_HINTS = {
+    key:          ['ключ проблемы', 'issue key', 'key', 'ключ', 'ключ задачи'],
+    issueId:      ['идентификатор проблемы', 'issue id', 'id', 'идентификатор'],
+    title:        ['тема', 'summary', 'название', 'epic name', 'имя эпика'],
+    author:       ['автор', 'reporter', 'author', 'creator', 'создатель'],
+    assignee:     ['исполнитель', 'assignee', 'ответственный'],
+    status:       ['статус', 'status'],
+    created:      ['создано', 'created', 'дата создания'],
+    hle:          ['hle', 'high level estimation', 'high-level estimation', 'оценка hle'],
+    plannedStart: ['planned start', 'planned start date', 'плановое начало', 'плановая дата начала'],
+    plannedEnd:   ['planned end', 'planned end date', 'плановое окончание', 'плановая дата окончания'],
+  };
+  const EPIC_CSV_FIELDS = Object.keys(EPIC_CSV_HINTS);
+  const EPIC_CSV_LABELS = {
+    key: 'Ключ проблемы', issueId: 'Идентификатор проблемы', title: 'Тема', author: 'Автор',
+    assignee: 'Исполнитель', status: 'Статус', created: 'Создано', hle: 'HLE, п/д',
+    plannedStart: 'Planned Start', plannedEnd: 'Planned End',
+  };
+
+  /**
+   * CSV → эпики. Эпик без ключа не нужен: по ключу повторная заливка обновляет, а не задваивает.
+   * @returns {{items:Array, unknownStatuses:string[], skipped:number}}
+   */
+  function epicItemsFromCsv(rows, mapping) {
+    if (!rows || rows.length < 2) return { items: [], unknownStatuses: [], skipped: 0 };
+    const cell = (row, idx) => (idx >= 0 && idx < row.length ? String(row[idx]).trim() : '');
+    const unknown = new Set();
+    let skipped = 0;
+
+    const items = rows.slice(1).map(row => {
+      const key = cell(row, mapping.key).toUpperCase();
+      const title = cell(row, mapping.title);
+      if (!key && !title) { skipped++; return null; }
+
+      const rawStatus = cell(row, mapping.status);
+      const status = matchEpicStatus(rawStatus);
+      if (rawStatus && !status) unknown.add(rawStatus);
+
+      const rawHle = cell(row, mapping.hle).replace(',', '.');
+      return {
+        key,
+        issueId: cell(row, mapping.issueId),
+        title: title || key,
+        author: cell(row, mapping.author),
+        assignee: cell(row, mapping.assignee),
+        status: status || 'backlog',
+        rawStatus,
+        createdAt: parseDateTime(cell(row, mapping.created)),
+        hle: rawHle !== '' && !isNaN(parseFloat(rawHle)) ? normalizeDays(parseFloat(rawHle)) : null,
+        plannedStart: parseDateOnly(cell(row, mapping.plannedStart)),
+        plannedEnd: parseDateOnly(cell(row, mapping.plannedEnd)),
+      };
+    }).filter(Boolean);
+
+    return { items, unknownStatuses: [...unknown], skipped };
+  }
+
+  /* ───────────── CRUD: эпики ───────────── */
+
+  const epics = () => state.epics;
+  const epicById = id => state.epics.find(e => e.id === id) || null;
+
+  function addEpic(data) {
+    const epic = normalizeEpic({ ...data, id: null, createdAt: data.createdAt || null });
+    state.epics.push(epic);
+    save();
+    return epic;
+  }
+
+  function updateEpic(id, patch) {
+    const e = epicById(id);
+    if (!e) return null;
+    Object.assign(e, normalizeEpic({ ...e, ...patch, id: e.id }));
+    save();
+    return e;
+  }
+
+  function deleteEpic(id) {
+    state.epics = state.epics.filter(e => e.id !== id);
+    save();
+  }
+
+  /**
+   * Заливка эпиков из выгрузки с обновлением по ключу.
+   *
+   * Jira — источник правды для темы, автора, исполнителя и статуса. План (даты и HLE) двигают здесь,
+   * поэтому по умолчанию из файла заполняются только пустые поля плана: повторная заливка
+   * не откатывает то, что вы перетащили на Ганте. overwritePlan — забрать план из файла целиком.
+   *
+   * @returns {{added:number, updated:number, total:number}}
+   */
+  function upsertEpics(items, { overwritePlan = false } = {}) {
+    let added = 0, updated = 0;
+    (items || []).forEach(item => {
+      const existing = item.key && state.epics.find(e => e.key === item.key);
+      if (!existing) {
+        state.epics.push(normalizeEpic({ ...item, id: null }));
+        added++;
+        return;
+      }
+      const plan = {};
+      const filePlanned = item.plannedStart && item.plannedEnd;
+      if (filePlanned && (overwritePlan || !existing.plannedStart)) {
+        plan.plannedStart = item.plannedStart;
+        plan.plannedEnd = item.plannedEnd;
+      }
+      if (item.hle !== null && (overwritePlan || existing.hle === null)) plan.hle = item.hle;
+
+      Object.assign(existing, normalizeEpic({
+        ...existing,
+        title: item.title || existing.title,
+        issueId: item.issueId || existing.issueId,
+        author: item.author || existing.author,
+        // Пустой исполнитель в выгрузке — это «не назначен в Jira», а не «снимите мой план»
+        assignee: item.assignee || existing.assignee,
+        status: item.rawStatus ? item.status : existing.status,
+        createdAt: item.createdAt || existing.createdAt,
+        ...plan,
+      }));
+      updated++;
+    });
+    save();
+    return { added, updated, total: (items || []).length };
+  }
+
+  /** Экранирование значения для CSV: кавычки, разделитель, переводы строк. */
+  const csvCell = v => {
+    const str = v === null || v === undefined ? '' : String(v);
+    return /[",;\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+
+  /** План эпиков в CSV — чтобы вернуть даты и HLE в Jira через импорт. */
+  function epicsToCsv(list) {
+    const head = ['Ключ проблемы', 'Идентификатор проблемы', 'Тема', 'Исполнитель', 'Статус',
+                  'HLE', 'Planned Start', 'Planned End'];
+    const rows = (list || state.epics).map(e => [
+      e.key, e.issueId, e.title, e.assignee, epicStatusById(e.status).label,
+      e.hle === null ? '' : String(e.hle), e.plannedStart || '', e.plannedEnd || '',
+    ]);
+    return [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
+  }
+
+  function downloadText(text, filename, type) {
+    // BOM — чтобы Excel не превратил кириллицу в кракозябры
+    const blob = new Blob(['\uFEFF' + text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportEpicsCsv(list) {
+    downloadText(epicsToCsv(list), `epics-plan-${today()}.csv`, 'text/csv;charset=utf-8');
+  }
+
   /* ───────────── Экспорт / импорт ───────────── */
 
   function exportJSON() {
@@ -1016,5 +1287,9 @@ const Store = (() => {
     carryCandidates, carryTasks,
     // данные
     exportJSON, parseImport, replaceState,
+    // эпики
+    EPIC_STATUSES, EPIC_STATUS_IDS, epicStatusById, isEpicClosed, matchEpicStatus, parseDateOnly,
+    EPIC_CSV_HINTS, EPIC_CSV_FIELDS, EPIC_CSV_LABELS, epicItemsFromCsv, epicsToCsv, exportEpicsCsv,
+    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics,
   };
 })();

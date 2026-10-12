@@ -78,6 +78,8 @@
       .map(t => `<option value="${t}"></option>`).join('');
     $('#dropReasonSelect').innerHTML = Store.DROP_REASONS
       .map(r => `<option value="${r.id}">${r.label}</option>`).join('');
+    $('#epicStatusSelect').innerHTML = Store.EPIC_STATUSES
+      .map(s => `<option value="${s.id}" ${s.id === 'backlog' ? 'selected' : ''}>${s.label}</option>`).join('');
   }
 
   function openSprintModal(sprint) {
@@ -854,6 +856,399 @@
     if (col.dataset.status === 'done') UI.toast('Задача закрыта 🎉', 'ok');
   });
 
+  /* ═════════════ Эпики ═════════════ */
+
+  /** Все известные люди — из эпиков и из задач спринтов: подсказка в поле исполнителя. */
+  function knownPeople() {
+    const names = new Map();
+    const add = n => { const v = String(n || '').trim(); if (v && !names.has(v.toLowerCase())) names.set(v.toLowerCase(), v); };
+    Store.epics().forEach(e => { add(e.assignee); add(e.author); });
+    Store.sprints().forEach(sp => sp.tasks.forEach(t => add(t.assignee)));
+    return [...names.values()].sort((a, b) => a.localeCompare(b, 'ru'));
+  }
+
+  function openEpicModal(epic) {
+    const form = $('#epicForm');
+    form.reset();
+    form.dataset.editId = epic ? epic.id : '';
+    $('#epicModalTitle').textContent = epic ? (epic.key || 'Эпик') : 'Новый эпик';
+    $('#btnDeleteEpic').hidden = !epic;
+    $('#btnUnplanEpic').hidden = !epic || !Epics.isScheduled(epic);
+    $('#epicPeople').innerHTML = knownPeople().map(n => `<option value="${UI.esc(n)}"></option>`).join('');
+
+    if (epic) {
+      ['title', 'key', 'issueId', 'assignee', 'author', 'status'].forEach(f => { form[f].value = epic[f] || ''; });
+      form.hle.value = epic.hle === null ? '' : epic.hle;
+      form.plannedStart.value = epic.plannedStart || '';
+      form.plannedEnd.value = epic.plannedEnd || '';
+      $('#epicCreatedHint').textContent = [
+        `Создано ${new Date(epic.createdAt).toLocaleDateString('ru-RU')}`,
+        epic.author ? `автор ${epic.author}` : '',
+      ].filter(Boolean).join(' · ');
+    } else {
+      form.status.value = 'backlog';
+      $('#epicCreatedHint').textContent = '';
+    }
+    updateEpicWindowHint();
+    openModal('epicModal');
+  }
+
+  /** Живая подсказка: сколько рабочих дней в окне и во что это выливается для исполнителя. */
+  function updateEpicWindowHint() {
+    const form = $('#epicForm');
+    const start = form.plannedStart.value, end = form.plannedEnd.value;
+    const hle = form.hle.value === '' ? null : Number(form.hle.value);
+    const hint = $('#epicWindowHint');
+    hint.classList.remove('txt-amber');
+
+    if (!start || !end) {
+      hint.textContent = hle
+        ? `Без дат эпик не попадёт на Гант. По HLE окно займёт ${Math.ceil(hle)} ${Metrics.plural(Math.ceil(hle), 'рабочий день', 'рабочих дня', 'рабочих дней')} — нажмите кнопку справа.`
+        : 'Без дат эпик не попадёт на Гант — его можно поставить и прямо на шкале.';
+      return;
+    }
+    if (Store.diffDays(start, end) < 0) {
+      hint.textContent = 'Planned End раньше Planned Start.';
+      hint.classList.add('txt-amber');
+      return;
+    }
+    const days = Store.workingDays(start, end);
+    const base = `Окно: ${days} ${Metrics.plural(days, 'рабочий день', 'рабочих дня', 'рабочих дней')}`;
+    if (!hle) { hint.textContent = `${base}. Укажите HLE — увидите загрузку исполнителя.`; return; }
+    const load = days ? hle / days : Infinity;
+    hint.textContent = `${base} · HLE ${Metrics.fmt(hle)} п/д → загрузка исполнителя ${Number.isFinite(load) ? Math.round(load * 100) + '%' : '∞'}` +
+      (load > 1 ? ' — одному человеку не успеть' : '');
+    if (load > 1) hint.classList.add('txt-amber');
+  }
+
+  $('#epicForm').addEventListener('input', e => {
+    const form = e.currentTarget;
+    // Сдвинули старт за окончание — тянем окончание за собой, сохраняя его смысл «не раньше старта»
+    if (e.target.name === 'plannedStart' && form.plannedStart.value &&
+        (!form.plannedEnd.value || form.plannedEnd.value < form.plannedStart.value)) {
+      form.plannedEnd.value = Epics.windowFromHle(form.plannedStart.value, Number(form.hle.value) || 0).end;
+    }
+    updateEpicWindowHint();
+  });
+
+  $('#btnEpicFitHle').addEventListener('click', () => {
+    const form = $('#epicForm');
+    const hle = Number(form.hle.value) || 0;
+    const w = Epics.windowFromHle(form.plannedStart.value || Store.today(), hle);
+    form.plannedStart.value = w.start;
+    form.plannedEnd.value = w.end;
+    updateEpicWindowHint();
+    if (!hle) UI.toast(`HLE не указан — поставили окно по умолчанию, ${Epics.DEFAULT_WINDOW_DAYS} рабочих дней`);
+  });
+
+  $('#epicForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const form = e.target;
+    const data = {
+      title: form.title.value.trim(),
+      key: form.key.value.trim().toUpperCase(),
+      issueId: form.issueId.value.trim(),
+      assignee: form.assignee.value.trim(),
+      author: form.author.value.trim(),
+      status: form.status.value,
+      hle: form.hle.value === '' ? null : Number(form.hle.value),
+      plannedStart: form.plannedStart.value || null,
+      plannedEnd: form.plannedEnd.value || null,
+    };
+    if (!data.title) return;
+    if (data.plannedStart && data.plannedEnd && data.plannedEnd < data.plannedStart) {
+      UI.toast('Planned End раньше Planned Start', 'err');
+      return;
+    }
+    // По ключу работает повторный импорт — два эпика с одним ключом склеились бы при следующей заливке
+    const id = form.dataset.editId;
+    if (data.key && Store.epics().some(x => x.key === data.key && x.id !== id)) {
+      UI.toast(`Эпик ${data.key} уже есть`, 'err');
+      return;
+    }
+
+    if (id) {
+      Store.updateEpic(id, data);
+      UI.toast('Эпик сохранён', 'ok');
+    } else {
+      Store.addEpic(data);
+      UI.toast(data.plannedStart ? 'Эпик добавлен в план' : 'Эпик добавлен — поставьте его на шкале', 'ok');
+    }
+    closeModal('epicModal');
+    UI.render();
+  });
+
+  $('#btnDeleteEpic').addEventListener('click', async () => {
+    const id = $('#epicForm').dataset.editId;
+    const epic = id && Store.epicById(id);
+    if (!epic) return;
+    const ok = await confirmDialog({
+      title: 'Удалить эпик?',
+      text: `«${epic.key ? epic.key + ' ' : ''}${epic.title}» исчезнет из плана. В Jira он останется — повторный импорт вернёт его.`,
+      okLabel: 'Удалить',
+    });
+    if (!ok) return;
+    Store.deleteEpic(id);
+    closeModal('epicModal');
+    UI.render();
+    UI.toast('Эпик удалён');
+  });
+
+  $('#btnUnplanEpic').addEventListener('click', () => {
+    const id = $('#epicForm').dataset.editId;
+    if (!id) return;
+    Store.updateEpic(id, { plannedStart: null, plannedEnd: null });
+    closeModal('epicModal');
+    UI.render();
+    UI.toast('Эпик снят с плана');
+  });
+
+  /** Итог перетаскивания на Ганте. */
+  function commitEpicDrag(epic, patch, { created }) {
+    const updated = Store.updateEpic(epic.id, patch);
+    UI.render();
+    if (!updated) return;
+    const name = updated.key || `«${updated.title}»`;
+    const dates = Store.formatRange(updated.plannedStart, updated.plannedEnd);
+    if (patch.assignee !== undefined) {
+      UI.toast(`${name} → ${updated.assignee || 'без исполнителя'}${patch.plannedStart ? ` · ${dates}` : ''}`, 'ok');
+    } else {
+      UI.toast(created ? `${name} в плане: ${dates}` : `${name}: ${dates}`, 'ok');
+    }
+  }
+
+  Roadmap.init({ onOpen: openEpicModal, onCommit: commitEpicDrag });
+
+  async function epicAction(act) {
+    if (act === 'new') return openEpicModal(null);
+    if (act === 'import') return openEpicImport();
+    if (act === 'export') {
+      if (!Store.epics().length) return UI.toast('Эпиков пока нет', 'err');
+      Store.exportEpicsCsv(Roadmap.visibleEpics());
+      return UI.toast('CSV с планом скачан — его можно залить в Jira', 'ok');
+    }
+    if (act === 'today') return Roadmap.scrollToToday();
+    if (act === 'toggle-closed') {
+      Store.setSetting('roadmapShowClosed', !Store.get().settings.roadmapShowClosed);
+      return Roadmap.render();
+    }
+  }
+
+  $('#epicActions').addEventListener('click', e => {
+    const btn = e.target.closest('[data-epic-act]');
+    if (btn) epicAction(btn.dataset.epicAct);
+  });
+
+  $('#epicsBody').addEventListener('click', e => {
+    const act = e.target.closest('[data-epic-act]');
+    if (act) return epicAction(act.dataset.epicAct);
+    const zoom = e.target.closest('[data-zoom]');
+    if (zoom) {
+      Store.setSetting('roadmapZoom', zoom.dataset.zoom);
+      return Roadmap.scrollToToday();
+    }
+    const group = e.target.closest('[data-group]');
+    if (group) {
+      Store.setSetting('roadmapGroup', group.dataset.group);
+      return Roadmap.render();
+    }
+    if (e.target.closest('a')) return;      // ключ эпика — ссылка в Jira
+    const label = e.target.closest('[data-epic-open]');
+    if (label) {
+      const epic = Store.epicById(label.dataset.epicOpen);
+      if (epic) openEpicModal(epic);
+    }
+  });
+
+  $('#epicsBody').addEventListener('input', e => {
+    if (e.target.id !== 'epicSearch') return;
+    Roadmap.view.query = e.target.value;
+    Roadmap.render();
+    // Перерисовка пересоздаёт поле поиска — возвращаем фокус и курсор
+    const input = $('#epicSearch');
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+
+  /* ── Импорт эпиков из CSV ── */
+
+  let epicRows = null;      // разобранный CSV
+  let epicMapping = null;   // { key: индекс колонки, … }
+  let epicStatusSignature = '';
+
+  function openEpicImport() {
+    const form = $('#epicImportForm');
+    form.reset();
+    epicRows = null; epicMapping = null; epicStatusSignature = '';
+    $('#epicMappingBlock').hidden = true;
+    $('#epicStatusMapBlock').hidden = true;
+    renderEpicPreview();
+    openModal('epicImportModal');
+  }
+
+  $('#epicCsvPick').addEventListener('click', () => $('#epicCsvFile').click());
+  $('#epicCsvFile').addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (file) loadEpicCsv(await file.text());
+  });
+  ['dragover', 'dragenter'].forEach(ev => $('#epicCsvDrop').addEventListener(ev, e => {
+    e.preventDefault();
+    $('#epicCsvDrop').classList.add('is-over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => $('#epicCsvDrop').addEventListener(ev, () => $('#epicCsvDrop').classList.remove('is-over')));
+  $('#epicCsvDrop').addEventListener('drop', async e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) loadEpicCsv(await file.text());
+  });
+
+  function loadEpicCsv(text) {
+    $('#epicImportForm').csvText.value = text;
+    parseEpicCsv();
+  }
+
+  function parseEpicCsv() {
+    const text = $('#epicImportForm').csvText.value.trim();
+    epicRows = text ? Store.parseCSV(text) : null;
+    if (!epicRows || epicRows.length < 2) {
+      epicMapping = null;
+      $('#epicMappingBlock').hidden = true;
+      renderEpicPreview();
+      return;
+    }
+    const headers = epicRows[0];
+    epicMapping = Store.detectCsvMapping(headers, Store.EPIC_CSV_HINTS);
+    // Ручные правки раскладки запоминаются по именам колонок
+    const saved = Store.get().settings.epicCsvMapping;
+    if (saved) {
+      Store.EPIC_CSV_FIELDS.forEach(field => {
+        const idx = headers.findIndex(h => h === saved[field]);
+        if (idx !== -1) epicMapping[field] = idx;
+      });
+    }
+    $('#epicMappingBlock').hidden = false;
+    $('#epicMapping').innerHTML = Store.EPIC_CSV_FIELDS.map(field => `
+      <label class="map-row">
+        <span class="map-row__label">${Store.EPIC_CSV_LABELS[field]}</span>
+        <select class="input input--sm" data-epic-field="${field}">
+          <option value="-1">— нет —</option>
+          ${headers.map((h, i) =>
+            `<option value="${i}" ${epicMapping[field] === i ? 'selected' : ''}>${UI.esc(h || `Колонка ${i + 1}`)}</option>`).join('')}
+        </select>
+      </label>`).join('');
+    renderEpicPreview();
+  }
+
+  function collectEpicItems() {
+    if (!epicRows || !epicMapping) return { items: [], unknownStatuses: [], skipped: 0 };
+    return Store.epicItemsFromCsv(epicRows, epicMapping);
+  }
+
+  function renderEpicStatusMap(unknown) {
+    const block = $('#epicStatusMapBlock');
+    block.hidden = !unknown.length;
+    if (block.hidden) { epicStatusSignature = ''; return; }
+    const signature = unknown.join('|');
+    if (signature === epicStatusSignature) return;
+    epicStatusSignature = signature;
+    $('#epicStatusMapList').innerHTML = unknown.map(name => `
+      <label class="map-row">
+        <span class="map-row__label" title="${UI.esc(name)}">${UI.esc(name)}</span>
+        <select class="input input--sm" data-epic-status-from="${UI.esc(name)}">
+          ${Store.EPIC_STATUSES.map(st => `<option value="${st.id}">${st.label}</option>`).join('')}
+        </select>
+      </label>`).join('');
+  }
+
+  function renderEpicPreview() {
+    const box = $('#epicPreview');
+    const { items, unknownStatuses, skipped } = collectEpicItems();
+    renderEpicStatusMap(unknownStatuses);
+
+    if (!items.length) {
+      box.innerHTML = '<div class="bulk-preview__empty">Выберите файл или вставьте CSV — здесь появится разбор</div>';
+      $('#epicImportSubmit').disabled = true;
+      return;
+    }
+
+    const overwrite = $('#epicImportForm').overwritePlan.checked;
+    let willUpdate = 0, planConflicts = 0;
+    const rows = items.map(item => {
+      const existing = item.key && Store.epics().find(e => e.key === item.key);
+      if (existing) willUpdate++;
+      // Даты в файле отличаются от плана здесь — без галки останутся наши
+      const conflict = existing && Epics.isScheduled(existing) && item.plannedStart && item.plannedEnd &&
+        (item.plannedStart !== existing.plannedStart || item.plannedEnd !== existing.plannedEnd);
+      if (conflict) planConflicts++;
+      const st = Store.epicStatusById(item.status);
+      return `
+        <div class="bulk-row">
+          ${item.key ? `<span class="bulk-row__key">${UI.esc(item.key)}</span>` : '<span class="bulk-row__key is-empty">—</span>'}
+          <span class="bulk-row__title">${UI.esc(item.title)}</span>
+          <span class="tag"><i class="dot ${st.dot}"></i>${st.label}</span>
+          ${item.hle !== null ? `<span class="tag tag--points">${Metrics.fmt(item.hle)} п/д</span>` : ''}
+          ${item.assignee ? `<span class="tag tag--assignee">${UI.esc(item.assignee)}</span>` : ''}
+          ${item.plannedStart && item.plannedEnd ? `<span class="tag">${Store.formatRange(item.plannedStart, item.plannedEnd)}</span>` : ''}
+          ${conflict ? `<span class="tag tag--longrun" title="Здесь: ${Store.formatRange(existing.plannedStart, existing.plannedEnd)}">${overwrite ? 'даты из файла' : 'даты оставим наши'}</span>` : ''}
+          ${existing ? '<span class="tag tag--update">обновит</span>' : ''}
+        </div>`;
+    }).join('');
+
+    const summary = [
+      `Распознано ${items.length} ${Metrics.plural(items.length, 'эпик', 'эпика', 'эпиков')}`,
+      willUpdate ? `${willUpdate} обновит существующие` : '',
+      planConflicts ? `у ${planConflicts} даты отличаются от плана` : '',
+      skipped ? `${skipped} ${Metrics.plural(skipped, 'строка пропущена', 'строки пропущено', 'строк пропущено')}` : '',
+    ].filter(Boolean).join(' · ');
+
+    const noKey = items.filter(i => !i.key).length;
+    const warn = noKey
+      ? `<div class="bulk-preview__warn">У ${noKey} ${Metrics.plural(noKey, 'строки', 'строк', 'строк')} нет ключа — повторный импорт их задвоит. Проверьте колонку «Ключ проблемы».</div>`
+      : '';
+    box.innerHTML = `<div class="bulk-preview__list">${rows}</div>${warn}<div class="bulk-preview__sum">${summary}</div>`;
+    $('#epicImportSubmit').disabled = false;
+  }
+
+  $('#epicImportForm').addEventListener('input', e => {
+    if (e.target.name === 'csvText') parseEpicCsv();
+  });
+
+  $('#epicImportForm').addEventListener('change', e => {
+    if (e.target.dataset.epicField) {
+      epicMapping[e.target.dataset.epicField] = Number(e.target.value);
+      const headers = epicRows ? epicRows[0] : [];
+      const saved = {};
+      Store.EPIC_CSV_FIELDS.forEach(f => { saved[f] = epicMapping[f] >= 0 ? headers[epicMapping[f]] : null; });
+      Store.setSetting('epicCsvMapping', saved);
+    }
+    if (e.target.dataset.epicStatusFrom) {
+      const map = { ...Store.get().settings.epicStatusMap };
+      map[Store.normalizeStatusKey(e.target.dataset.epicStatusFrom)] = e.target.value;
+      Store.setSetting('epicStatusMap', map);
+    }
+    renderEpicPreview();
+  });
+
+  $('#epicImportForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const { items } = collectEpicItems();
+    if (!items.length) return UI.toast('Нечего импортировать', 'err');
+    // Нераспознанные статусы, которые так и не тронули, сохраняем по видимому выбору
+    $$('[data-epic-status-from]').forEach(sel => {
+      const map = { ...Store.get().settings.epicStatusMap };
+      const key = Store.normalizeStatusKey(sel.dataset.epicStatusFrom);
+      if (!map[key]) { map[key] = sel.value; Store.setSetting('epicStatusMap', map); }
+    });
+    const res = Store.upsertEpics(collectEpicItems().items, { overwritePlan: e.target.overwritePlan.checked });
+    closeModal('epicImportModal');
+    UI.setTab('epics');
+    const parts = [];
+    if (res.added) parts.push(`добавлено ${res.added}`);
+    if (res.updated) parts.push(`обновлено ${res.updated}`);
+    UI.toast(('Эпики: ' + parts.join(', ')), 'ok');
+  });
+
   /* ═════════════ Сводка по спринту ═════════════ */
 
   function renderSummary() {
@@ -964,7 +1359,8 @@
       const next = Store.parseImport(text);
       const ok = await confirmDialog({
         title: 'Заменить текущие данные?',
-        text: `В файле ${next.sprints.length} ${Metrics.plural(next.sprints.length, 'спринт', 'спринта', 'спринтов')}. ` +
+        text: `В файле ${next.sprints.length} ${Metrics.plural(next.sprints.length, 'спринт', 'спринта', 'спринтов')}` +
+              (next.epics.length ? ` и ${next.epics.length} ${Metrics.plural(next.epics.length, 'эпик', 'эпика', 'эпиков')}` : '') + '. ' +
               `Текущие данные в этом браузере будут перезаписаны — сделайте экспорт, если они нужны.`,
         okLabel: 'Импортировать', danger: false,
       });
@@ -1080,7 +1476,13 @@
     const modalOpen = $$('.modal').some(m => !m.hidden);
     if (typing || modalOpen || e.metaKey || e.ctrlKey || e.altKey) return;
 
-    if (e.key === 'n' || e.key === 'т') {           // новая задача
+    if (UI.view.tab === 'epics' && (e.key === 'n' || e.key === 'т')) {   // новый эпик
+      e.preventDefault();
+      openEpicModal(null);
+    } else if (UI.view.tab === 'epics' && e.key === '/') {
+      const input = $('#epicSearch');
+      if (input) { e.preventDefault(); input.focus(); }
+    } else if (e.key === 'n' || e.key === 'т') {           // новая задача
       const s = Store.activeSprint();
       if (s && s.status !== 'archived') { e.preventDefault(); openTaskModal(null); }
     } else if (e.key === 'b' || e.key === 'и') {    // свернуть/показать панель
