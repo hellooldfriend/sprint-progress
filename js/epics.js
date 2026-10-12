@@ -18,6 +18,63 @@ const Epics = (() => {
 
   const isScheduled = e => !!(e.plannedStart && e.plannedEnd);
 
+  /**
+   * Готовность эпика — прошёл ли он груминг. Считается по статусу и HLE, а не отдельным флагом:
+   * статус приезжает из Jira, и два источника правды разъехались бы на первом же импорте.
+   *
+   *   requirements — Backlog, Requirements definition: требования ещё не понятны;
+   *   estimate     — Ready for HLE без оценки: требования понятны, ждём HLE;
+   *   ready        — Ready for HLE с оценкой: можно брать в работу;
+   *   progress     — Development … Ready for Deploy: уже делаем;
+   *   closed       — Готово, Rejected.
+   *
+   * Первые две — «не прошли груминг», ready и progress — «прошли».
+   */
+  const STAGES = [
+    { id: 'requirements', label: 'Требования',        hint: 'Требования ещё не понятны',            groomed: false, color: 'var(--amber)' },
+    { id: 'estimate',     label: 'Ждут HLE',          hint: 'Требования понятны, нет оценки',       groomed: false, color: 'var(--accent)' },
+    { id: 'ready',        label: 'Готовы к работе',   hint: 'Требования понятны, HLE проставлен',   groomed: true,  color: 'var(--green)' },
+    { id: 'progress',     label: 'В работе',          hint: 'Development, тестирование, деплой',    groomed: true,  color: 'var(--blue)' },
+    { id: 'closed',       label: 'Закрыты',           hint: 'Готово и Rejected',                    groomed: null,  color: 'var(--faint)' },
+  ];
+  const stageById = id => STAGES.find(s => s.id === id);
+  const IN_WORK = ['development', 'ready_for_testing', 'testing', 'ready_for_deploy'];
+
+  function stage(e) {
+    if (Store.isEpicClosed(e)) return 'closed';
+    if (IN_WORK.includes(e.status)) return 'progress';
+    if (e.status === 'ready_for_hle') return e.hle ? 'ready' : 'estimate';
+    return 'requirements';
+  }
+  /** true — прошёл груминг, false — нет, null — закрыт (вопрос уже не стоит). */
+  const isGroomed = e => stageById(stage(e)).groomed;
+
+  /** Секции бэклога и группы Ганта «по готовности». */
+  const READINESS_GROUPS = [
+    { key: 'groomed',   name: 'Прошли груминг',    hint: 'Требования понятны, HLE проставлен — готовы к работе или уже в ней' },
+    { key: 'ungroomed', name: 'Не прошли груминг', hint: 'Требования не понятны или нет оценки HLE' },
+    { key: 'closed',    name: 'Закрытые',          hint: 'Готово и Rejected' },
+  ];
+  const readinessKey = e => {
+    const g = isGroomed(e);
+    return g === null ? 'closed' : g ? 'groomed' : 'ungroomed';
+  };
+
+  /**
+   * Сводка по готовности: сколько эпиков и HLE на каждой стадии.
+   * @returns {{stages: Array<{id,label,hint,color,count,hle,noHle}>, groomed, ungroomed}}
+   */
+  function readiness(list) {
+    const stages = STAGES.map(st => {
+      const mine = list.filter(e => stage(e) === st.id);
+      return { ...st, count: mine.length, hle: mine.reduce((a, e) => a + (e.hle || 0), 0),
+               noHle: mine.filter(e => e.hle === null).length };
+    });
+    const sum = flag => stages.filter(s => s.groomed === flag)
+      .reduce((acc, s) => ({ count: acc.count + s.count, hle: acc.hle + s.hle }), { count: 0, hle: 0 });
+    return { stages, groomed: sum(true), ungroomed: sum(false) };
+  }
+
   /** Ближайший рабочий день, начиная с данного. */
   function nextWorkingDay(iso) {
     let day = iso;
@@ -182,11 +239,19 @@ const Epics = (() => {
    * внутри группы — по дате старта, незапланированные внизу.
    */
   function groupRows(list, mode) {
+    // Порядок — ручной приоритет; без него (данные тестов, сырой импорт) — по дате старта
     const byStart = (a, b) => {
+      const ra = a.rank ?? Infinity, rb = b.rank ?? Infinity;
+      if (ra !== rb) return ra - rb;
       if (isScheduled(a) !== isScheduled(b)) return isScheduled(a) ? -1 : 1;
       if (isScheduled(a) && a.plannedStart !== b.plannedStart) return a.plannedStart < b.plannedStart ? -1 : 1;
       return a.key.localeCompare(b.key, 'ru', { numeric: true });
     };
+    if (mode === 'readiness') {
+      return READINESS_GROUPS
+        .map(g => ({ ...g, epics: list.filter(e => readinessKey(e) === g.key).sort(byStart) }))
+        .filter(g => g.epics.length);
+    }
     if (mode !== 'assignee') return [{ key: null, name: null, epics: [...list].sort(byStart) }];
 
     const groups = new Map();
@@ -202,6 +267,7 @@ const Epics = (() => {
 
   return {
     DEFAULT_WINDOW_DAYS, LOAD_WARN, NONE_KEY,
+    STAGES, stageById, stage, isGroomed, READINESS_GROUPS, readinessKey, readiness,
     isScheduled, nextWorkingDay, windowFromHle, windowDays, intensity, personKey, weekStart,
     timelineRange, weeksOf, weeklyLoad, upcomingPeak, issues, overview, groupRows,
   };

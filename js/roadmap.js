@@ -1,5 +1,5 @@
 /* ============================================================
-   roadmap.js — вкладка «Эпики»: Гант с перетаскиванием.
+   roadmap.js — вкладка «Эпики»: Гант и бэклог с перетаскиванием.
    Рендер и жесты живут вместе: перетаскивание полосы — это и есть интерфейс.
    Запись в Store делает app.js через колбэки из init().
 
@@ -8,7 +8,8 @@
    - тянуть край — сдвиг Planned Start или Planned End;
    - тянуть в дорожку другого человека (группировка по исполнителю) — переназначить;
    - клик или протяжка по шкале у эпика без дат — поставить в план окном по HLE;
-   - клик по полосе без движения — открыть эпик.
+   - клик по полосе без движения — открыть эпик;
+   - тянуть за ручку ⋮⋮ слева от эпика — поменять приоритет (и на Ганте, и в бэклоге).
    ============================================================ */
 const Roadmap = (() => {
   'use strict';
@@ -29,11 +30,15 @@ const Roadmap = (() => {
                        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
   /** Локальное состояние вкладки (не сохраняется). */
-  const view = { query: '', centerOnToday: true };
+  const view = {
+    query: '',
+    stage: null,            // фильтр по стадии готовности из полосы «Готовность бэклога»
+    centerOnToday: true,
+  };
 
   let range = null;       // { start, end, days } — текущая шкала
   let dayW = ZOOM.month.day;
-  let handlers = { onOpen() {}, onCommit() {} };
+  let handlers = { onOpen() {}, onCommit() {}, onReorder() {} };
 
   const settings = () => Store.get().settings;
 
@@ -41,6 +46,7 @@ const Roadmap = (() => {
     const q = view.query.trim().toLowerCase();
     return Store.epics().filter(e => {
       if (!settings().roadmapShowClosed && Store.isEpicClosed(e)) return false;
+      if (view.stage && Epics.stage(e) !== view.stage) return false;
       if (!q) return true;
       return [e.key, e.title, e.assignee, e.author, Store.epicStatusById(e.status).label]
         .some(f => String(f || '').toLowerCase().includes(q));
@@ -81,14 +87,28 @@ const Roadmap = (() => {
 
     const today = Store.today();
     const list = visibleEpics();
+
+    if (settings().epicsView === 'backlog') {
+      mount.innerHTML = `
+        ${readinessHTML(all)}
+        ${toolbarHTML(list.length, all.length)}
+        ${backlogHTML(list, today)}
+        <p class="hint">
+          Тяните за ⋮⋮, чтобы поменять приоритет — порядок общий для бэклога и Ганта.
+          Готовность считается по статусу и HLE: проставьте оценку эпику в Ready for HLE — и он перейдёт в «Прошли груминг».
+        </p>`;
+      return;
+    }
+
     const zoom = ZOOM[settings().roadmapZoom] || ZOOM.month;
     dayW = zoom.day;
     LEFT_W = leftWidth();
     range = Epics.timelineRange(all, today);     // шкала по всем эпикам: фильтр не должен её дёргать
     const weeks = Epics.weeksOf(range);
     const load = Epics.weeklyLoad(all, weeks);
-    const grouped = settings().roadmapGroup === 'assignee';
-    const groups = Epics.groupRows(list, settings().roadmapGroup);
+    const mode = settings().roadmapGroup;
+    const grouped = mode === 'assignee';
+    const groups = Epics.groupRows(list, mode);
     const width = range.days * dayW;
 
     // Сохраняем прокрутку: перерисовка после перетаскивания не должна прыгать
@@ -96,22 +116,24 @@ const Roadmap = (() => {
     const scroll = old ? { left: old.scrollLeft, top: old.scrollTop } : null;
 
     mount.innerHTML = `
+      ${readinessHTML(all)}
       ${overviewHTML(Epics.overview(all, today))}
       ${toolbarHTML(list.length, all.length)}
-      <div class="gantt ${grouped ? 'is-grouped' : ''}" id="gantt"
+      <div class="gantt ${grouped ? 'is-grouped' : ''}" id="gantt" ${grouped ? 'data-sort-cross' : ''}
            style="--day:${dayW}px;--left:${LEFT_W}px;--track:${width}px">
         ${headHTML(zoom)}
         <div class="gantt__body">
           ${list.length
-            ? groups.map(g => groupHTML(g, grouped, load, weeks, today)).join('')
+            ? groups.map(g => groupHTML(g, mode, load, weeks, today)).join('')
             : '<div class="gantt__nothing">Ничего не нашлось — поменяйте поиск или покажите закрытые эпики</div>'}
           ${today >= range.start && today <= range.end
             ? `<div class="gantt__today" style="left:${LEFT_W + x(today) + dayW / 2}px"><span>Сегодня</span></div>` : ''}
         </div>
       </div>
       <p class="hint">
-        Тяните полосу, чтобы сдвинуть эпик, за край — чтобы поменять Planned Start или End.
+        Тяните полосу, чтобы сдвинуть эпик, за край — чтобы поменять Planned Start или End, за ⋮⋮ — чтобы поменять приоритет.
         ${grouped ? 'Перетащите в строку другого человека — эпик перейдёт к нему.' : ''}
+        Пунктирные полосы — эпики, не прошедшие груминг: их даты пока ориентировочные.
         У эпика без дат кликните по шкале — окно поставится по HLE.
         Загрузка считается так: эпик делает один человек, HLE в человеко-днях делится на рабочие дни окна.
       </p>`;
@@ -172,26 +194,77 @@ const Roadmap = (() => {
     </section>`;
   }
 
+  /* ── Готовность бэклога: прошли груминг или нет ── */
+  function readinessHTML(all) {
+    const r = Epics.readiness(all);
+    // Слева направо — от самого готового к самому сырому: черта груминга посередине
+    const ORDER = ['progress', 'ready', 'estimate', 'requirements'];
+    const open = ORDER.map(id => r.stages.find(st => st.id === id));
+    const total = open.reduce((a, st) => a + st.count, 0);
+    if (!total) return '';
+
+    const segment = st => st.count
+      ? `<button class="readiness__seg ${view.stage === st.id ? 'is-active' : ''}" data-stage="${st.id}"
+                 style="flex:${st.count};--c:${st.color}" title="${esc(st.label)}: ${st.count} · ${esc(st.hint)}"></button>` : '';
+    const legend = st => `
+      <button class="readiness__item ${view.stage === st.id ? 'is-active' : ''} ${st.count ? '' : 'is-empty'}"
+              data-stage="${st.id}" title="${esc(st.hint)} — показать только их">
+        <i style="background:${st.color}"></i>
+        <span class="readiness__name">${st.label}</span>
+        <b>${st.count}</b>
+        <span class="readiness__hle">${st.hle ? `${Metrics.fmt(st.hle)} п/д` : st.count ? 'без HLE' : ''}</span>
+      </button>`;
+    const side = (title, part, cls) => `
+      <div class="readiness__side ${cls}">
+        <span>${title}</span>
+        <b>${part.count}</b>
+        <em>${Metrics.pct(part.count, total)}%${part.hle ? ` · ${Metrics.fmt(part.hle)} п/д` : ''}</em>
+      </div>`;
+
+    return `
+      <section class="card readiness">
+        <div class="readiness__top">
+          ${side('Прошли груминг', r.groomed, 'is-groomed')}
+          <div class="readiness__bar">${open.map(segment).join('')}</div>
+          ${side('Не прошли груминг', r.ungroomed, 'is-ungroomed')}
+        </div>
+        <div class="readiness__legend">
+          <span class="readiness__group">Прошли:</span>
+          ${open.filter(st => st.groomed).map(legend).join('')}
+          <span class="readiness__group">Не прошли:</span>
+          ${open.filter(st => !st.groomed).map(legend).join('')}
+        </div>
+      </section>`;
+  }
+
   /* ── Панель управления ── */
   function toolbarHTML(shown, total) {
     const s = settings();
+    const gantt = s.epicsView !== 'backlog';
     return `
       <div class="board-toolbar">
+        <div class="segmented" role="group" aria-label="Вид">
+          <button data-epics-view="gantt" class="${gantt ? 'is-active' : ''}">Гант</button>
+          <button data-epics-view="backlog" class="${!gantt ? 'is-active' : ''}">Бэклог</button>
+        </div>
         <label class="search">
           <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           <input type="search" id="epicSearch" placeholder="Поиск по эпикам…" value="${esc(view.query)}" />
         </label>
+        ${gantt ? `
         <div class="segmented" role="group" aria-label="Масштаб">
           ${Object.entries(ZOOM).map(([id, z]) =>
             `<button data-zoom="${id}" class="${s.roadmapZoom === id ? 'is-active' : ''}">${z.label}</button>`).join('')}
         </div>
         <div class="segmented" role="group" aria-label="Группировка">
           <button data-group="assignee" class="${s.roadmapGroup === 'assignee' ? 'is-active' : ''}">По людям</button>
+          <button data-group="readiness" class="${s.roadmapGroup === 'readiness' ? 'is-active' : ''}">По готовности</button>
           <button data-group="none" class="${s.roadmapGroup === 'none' ? 'is-active' : ''}">Списком</button>
-        </div>
+        </div>` : ''}
         <button class="btn btn--ghost btn--sm ${s.roadmapShowClosed ? 'is-on' : ''}" data-epic-act="toggle-closed"
                 title="Готово и Rejected">${s.roadmapShowClosed ? 'Скрыть закрытые' : 'Показать закрытые'}</button>
-        <button class="btn btn--ghost btn--sm" data-epic-act="today">Сегодня</button>
+        ${gantt ? '<button class="btn btn--ghost btn--sm" data-epic-act="today">Сегодня</button>' : ''}
+        ${view.stage ? `<button class="chip chip--reset" data-stage="">Стадия: ${esc(Epics.stageById(view.stage).label)} ✕</button>` : ''}
         <span class="hint" id="epicCount">${shown === total
           ? `${total} ${Metrics.plural(total, 'эпик', 'эпика', 'эпиков')}`
           : `Показано ${shown} из ${total}`}</span>
@@ -240,9 +313,25 @@ const Roadmap = (() => {
   }
 
   /* ── Группа: строка человека с загрузкой + его эпики ── */
-  function groupHTML(g, grouped, load, weeks, today) {
-    const rows = g.epics.map(e => rowHTML(e, g, grouped, today)).join('');
-    if (!grouped) return rows;
+  function groupHTML(g, mode, load, weeks, today) {
+    const grouped = mode === 'assignee';
+    const scope = g.key || 'all';
+    const rows = g.epics.map(e => rowHTML(e, scope, grouped, today)).join('');
+    if (mode === 'none') return rows;
+
+    if (mode === 'readiness') {
+      const hle = g.epics.reduce((acc, e) => acc + (e.hle || 0), 0);
+      const noHle = g.epics.filter(e => e.hle === null).length;
+      return `
+        <div class="gantt__row gantt__row--group gantt__row--${g.key}" data-sort-head="${scope}">
+          <div class="gantt__label">
+            <span class="gl__person">${esc(g.name)}</span>
+            <span class="gl__sum">${g.epics.length} ${Metrics.plural(g.epics.length, 'эпик', 'эпика', 'эпиков')}${hle ? ` · ${Metrics.fmt(hle)} п/д` : ''}${noHle && g.key !== 'closed' ? ` · без HLE ${noHle}` : ''}</span>
+          </div>
+          <div class="gantt__track gantt__track--load"><span class="gantt__note">${esc(g.hint)}</span></div>
+        </div>
+        ${rows}`;
+    }
 
     const person = g.name ? load.get(Epics.personKey(g.name)) : null;
     const open = g.epics.filter(e => !Store.isEpicClosed(e));
@@ -259,7 +348,8 @@ const Roadmap = (() => {
     }).join('') : '';
 
     return `
-      <div class="gantt__row gantt__row--group" data-lane="${esc(laneKey)}" data-lane-name="${esc(g.name || '')}">
+      <div class="gantt__row gantt__row--group" data-lane="${esc(laneKey)}" data-lane-name="${esc(g.name || '')}"
+           data-sort-head="${esc(scope)}">
         <div class="gantt__label">
           <span class="gl__person">${esc(g.name || 'Без исполнителя')}</span>
           <span class="gl__sum">
@@ -273,20 +363,31 @@ const Roadmap = (() => {
   }
 
   /* ── Строка эпика ── */
-  function rowHTML(e, g, grouped, today) {
+  /** Ключ эпика — ссылка в Jira, если задан адрес трекера. */
+  function keyHTML(e) {
+    if (!e.key) return '';
+    const url = Store.taskUrl(e.key);
+    return url
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener" draggable="false" title="Открыть в Jira">${esc(e.key)}</a>`
+      : esc(e.key);
+  }
+
+  const GRIP = '<span class="grip" data-grip title="Перетащите, чтобы поменять приоритет" aria-hidden="true"></span>';
+
+  function rowHTML(e, scope, grouped, today) {
     const st = Store.epicStatusById(e.status);
+    const stg = Epics.stageById(Epics.stage(e));
     const problems = Epics.issues(e, today);
     const worst = problems.some(p => p.level === 'err') ? 'err' : problems.length ? 'warn' : '';
-    const url = Store.taskUrl(e.key);
-    const keyHTML = e.key
-      ? (url ? `<a href="${esc(url)}" target="_blank" rel="noopener" title="Открыть в Jira">${esc(e.key)}</a>` : esc(e.key))
-      : '';
 
     return `
-      <div class="gantt__row ${Store.isEpicClosed(e) ? 'is-closed' : ''}" data-epic="${e.id}" data-lane="${esc(g.key || '')}">
-        <div class="gantt__label" data-epic-open="${e.id}" title="${esc(e.title)}">
+      <div class="gantt__row ${Store.isEpicClosed(e) ? 'is-closed' : ''} ${stg.groomed === false ? 'is-ungroomed' : ''}"
+           data-epic="${e.id}" data-lane="${esc(scope)}" data-sort-id="${e.id}" data-sort-scope="${esc(scope)}">
+        <div class="gantt__label" data-epic-open="${e.id}" title="${esc(e.title)}\n${esc(stg.label)} — ${esc(stg.hint)}"
+             style="--stage:${stg.color}">
+          ${GRIP}
           <div class="gl__line">
-            ${keyHTML ? `<span class="gl__key">${keyHTML}</span>` : ''}
+            ${e.key ? `<span class="gl__key">${keyHTML(e)}</span>` : ''}
             <span class="gl__title">${esc(e.title)}</span>
           </div>
           <div class="gl__line gl__meta">
@@ -330,6 +431,178 @@ const Roadmap = (() => {
       </div>`;
   }
 
+  /* ═════════════ Бэклог ═════════════ */
+
+  /**
+   * Приоритизированный список, разделённый по готовности. Порядок общий с Гантом.
+   * HLE и статус правятся прямо в строке — удобно на самом груминге.
+   */
+  function backlogHTML(list, today) {
+    const sections = Epics.READINESS_GROUPS
+      .filter(g => g.key !== 'closed' || settings().roadmapShowClosed)
+      .map(g => ({ ...g, epics: Epics.groupRows(list.filter(e => Epics.readinessKey(e) === g.key), 'none')[0].epics }))
+      // Пустую секцию с отфильтрованной стадией не показываем, а пустой «Прошли груминг» — показываем: это сигнал
+      .filter(g => g.epics.length || (!view.stage && !view.query && g.key !== 'closed'));
+
+    if (!sections.length) return '<div class="gantt__nothing">Ничего не нашлось — поменяйте поиск или фильтр</div>';
+    return `<div class="backlog">${sections.map(sec => backlogSection(sec, today)).join('')}</div>`;
+  }
+
+  function backlogSection(sec, today) {
+    const hle = sec.epics.reduce((acc, e) => acc + (e.hle || 0), 0);
+    const noHle = sec.epics.filter(e => e.hle === null).length;
+    const noDates = sec.epics.filter(e => !Epics.isScheduled(e)).length;
+    let cumulative = 0;
+    const rows = sec.epics.map((e, i) => {
+      cumulative += e.hle || 0;
+      return backlogRowHTML(e, sec.key, today, i + 1, sec.key === 'groomed' ? cumulative : null);
+    }).join('');
+
+    const empty = {
+      groomed: 'Ни один эпик ещё не прошёл груминг. Проставьте HLE эпикам в Ready for HLE — и они появятся здесь.',
+      ungroomed: 'Все открытые эпики прошли груминг 🎉',
+      closed: 'Закрытых эпиков нет',
+    }[sec.key];
+
+    return `
+      <section class="bl-section bl-section--${sec.key}" data-sort-head="${sec.key}">
+        <header class="bl-section__head">
+          <div>
+            <h3>${esc(sec.name)}</h3>
+            <p class="hint">${esc(sec.hint)}</p>
+          </div>
+          <div class="bl-section__stats">
+            <span><b>${sec.epics.length}</b> ${Metrics.plural(sec.epics.length, 'эпик', 'эпика', 'эпиков')}</span>
+            <span><b>${Metrics.fmt(hle)}</b> п/д</span>
+            ${noHle && sec.key !== 'closed' ? `<span class="txt-amber">без HLE ${noHle}</span>` : ''}
+            ${noDates && sec.key === 'groomed' ? `<span>без дат ${noDates}</span>` : ''}
+          </div>
+        </header>
+        ${sec.epics.length ? `
+        <div class="bl-list">
+          <div class="bl-row bl-row--head">
+            <span></span><span>#</span><span>Эпик</span><span>Статус</span><span>HLE, п/д</span>
+            <span>${sec.key === 'groomed' ? '<span title="HLE нарастающим итогом сверху вниз — видно, где проходит черта ёмкости">Σ п/д</span>' : ''}</span>
+          </div>
+          ${rows}
+        </div>` : `<div class="column__empty">${empty}</div>`}
+      </section>`;
+  }
+
+  function backlogRowHTML(e, scope, today, position, cumulative) {
+    const stg = Epics.stageById(Epics.stage(e));
+    const problems = Epics.issues(e, today).filter(p => p.id !== 'no-hle');   // нет HLE и так видно по полю
+    const worst = problems.some(p => p.level === 'err') ? 'err' : problems.length ? 'warn' : '';
+    const meta = [
+      e.key ? `<span class="gl__key">${keyHTML(e)}</span>` : '',
+      e.assignee ? `<span>${esc(e.assignee)}</span>` : '<span class="txt-faint">без исполнителя</span>',
+      Epics.isScheduled(e) ? `<span>${Store.formatRange(e.plannedStart, e.plannedEnd)}</span>` : '<span class="txt-faint">без дат</span>',
+    ].join('<span class="bl-dot">·</span>');
+
+    return `
+      <div class="bl-row ${Store.isEpicClosed(e) ? 'is-closed' : ''}" data-sort-id="${e.id}" data-sort-scope="${scope}"
+           style="--stage:${stg.color}">
+        ${GRIP}
+        <span class="bl-rank" title="Общий приоритет ${e.rank} из ${Store.epics().length}">${position}</span>
+        <div class="bl-main" data-epic-open="${e.id}">
+          <div class="bl-title">
+            <span class="bl-stage" title="${esc(stg.hint)}"><i></i>${esc(stg.label)}</span>
+            <span class="gl__title">${esc(e.title)}</span>
+            ${worst ? `<span class="gl__warn gl__warn--${worst}" title="${esc(problems.map(p => p.text).join('\n'))}">!</span>` : ''}
+          </div>
+          <div class="bl-meta">${meta}</div>
+        </div>
+        <select class="input input--sm bl-status" data-inline-status="${e.id}" aria-label="Статус">
+          ${Store.EPIC_STATUSES.map(st => `<option value="${st.id}" ${st.id === e.status ? 'selected' : ''}>${st.label}</option>`).join('')}
+        </select>
+        <input class="input input--mini bl-hle ${stg.id === 'estimate' ? 'is-wanted' : ''}" type="number" min="0" max="9999" step="0.5"
+               data-inline-hle="${e.id}" value="${e.hle === null ? '' : e.hle}" placeholder="—" aria-label="HLE"
+               title="${stg.id === 'estimate' ? 'Проставьте HLE — эпик пройдёт груминг' : 'HLE, человеко-дней'}" />
+        <span class="bl-cum">${cumulative !== null ? Metrics.fmt(cumulative) : ''}</span>
+      </div>`;
+  }
+
+  /* ═════════════ Сортировка за ручку ═════════════ */
+
+  let sort = null;
+
+  /** Линия, показывающая, куда встанет эпик. */
+  function indicator(rect) {
+    let el = $('#sortLine');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'sortLine';
+      el.className = 'sort-line';
+      document.body.appendChild(el);
+    }
+    el.hidden = !rect;
+    if (!rect) return;
+    el.style.left = `${rect.left}px`;
+    el.style.width = `${rect.width}px`;
+    el.style.top = `${rect.y - 1}px`;
+  }
+
+  function startSort(e) {
+    const item = e.target.closest('[data-sort-id]');
+    if (!item) return;
+    e.preventDefault();
+    try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* без захвата тоже работает: слушаем document */ }
+    item.classList.add('is-sorting');
+    document.body.classList.add('is-sorting');
+    sort = {
+      id: item.dataset.sortId,
+      scope: item.dataset.sortScope,
+      item,
+      cross: !!item.closest('[data-sort-cross]'),
+      scroller: item.closest('.gantt'),
+      target: null,
+    };
+  }
+
+  function onSortMove(e) {
+    // У края подкручиваем список: Гант — внутри себя, бэклог — всю страницу
+    const box = sort.scroller ? sort.scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const step = e.clientY < box.top + 40 ? -12 : e.clientY > box.bottom - 40 ? 12 : 0;
+    if (step) (sort.scroller || document.scrollingElement).scrollTop += step;
+
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    let target = under && under.closest('[data-sort-id]');
+    let place;
+    if (target) {
+      const rect = target.getBoundingClientRect();
+      place = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    } else {
+      // Над заголовком группы — ставим первым в эту группу
+      const head = under && under.closest('[data-sort-head]');
+      const scope = head && head.dataset.sortHead;
+      target = scope ? document.querySelector(`[data-sort-scope="${CSS.escape(scope)}"]`) : null;
+      place = 'before';
+    }
+
+    const allowed = target && (target.dataset.sortScope === sort.scope || sort.cross);
+    document.body.classList.toggle('is-sort-blocked', !!target && !allowed);
+    if (!allowed || target === sort.item) {
+      sort.target = null;
+      indicator(null);
+      return;
+    }
+    sort.target = { id: target.dataset.sortId, scope: target.dataset.sortScope, place };
+    const rect = target.getBoundingClientRect();
+    indicator({ left: rect.left, width: rect.width, y: place === 'before' ? rect.top : rect.bottom });
+  }
+
+  function finishSort(commit) {
+    const s = sort;
+    sort = null;
+    indicator(null);
+    s.item.classList.remove('is-sorting');
+    document.body.classList.remove('is-sorting', 'is-sort-blocked');
+    if (!commit || !s.target) return;
+    // В Ганте по людям перенос в чужую группу — это ещё и смена исполнителя
+    const reassign = s.target.scope !== s.scope ? laneName(s.target.scope) : undefined;
+    handlers.onReorder(s.id, s.target.id, s.target.place, reassign);
+  }
+
   /* ═════════════ Перетаскивание ═════════════ */
 
   let drag = null;
@@ -358,6 +631,7 @@ const Roadmap = (() => {
 
   function onPointerDown(e) {
     if (e.button !== 0) return;
+    if (e.target.closest('[data-grip]')) { startSort(e); return; }
     const gantt = e.target.closest('#gantt');
     const row = e.target.closest('.gantt__row[data-epic]');
     if (!gantt || !row || e.target.closest('a')) return;
@@ -402,6 +676,7 @@ const Roadmap = (() => {
   }
 
   function onPointerMove(e) {
+    if (sort) { onSortMove(e); return; }
     if (!drag) return;
     const { gantt, orig, mode } = drag;
 
@@ -476,9 +751,13 @@ const Roadmap = (() => {
     handlers = { ...handlers, ...opts };
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('pointermove', onPointerMove);
-    document.addEventListener('pointerup', () => finish(true));
-    document.addEventListener('pointercancel', () => finish(false));
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && drag) finish(false); });
+    document.addEventListener('pointerup', () => { if (sort) finishSort(true); else finish(true); });
+    document.addEventListener('pointercancel', () => { if (sort) finishSort(false); else finish(false); });
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      if (sort) finishSort(false);
+      if (drag) finish(false);
+    });
   }
 
   /** Прокрутить шкалу к сегодняшнему дню. */
@@ -487,7 +766,7 @@ const Roadmap = (() => {
     render();
   }
 
-  const isDragging = () => !!drag;
+  const isDragging = () => !!(drag || sort);
 
   return { view, init, render, scrollToToday, visibleEpics, isDragging };
 })();

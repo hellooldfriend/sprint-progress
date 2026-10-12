@@ -968,8 +968,9 @@
     }
 
     if (id) {
-      Store.updateEpic(id, data);
-      UI.toast('Эпик сохранён', 'ok');
+      const before = Epics.isGroomed(Store.epicById(id));
+      const epic = Store.updateEpic(id, data);
+      if (!announceReadiness(before, epic)) UI.toast('Эпик сохранён', 'ok');
     } else {
       Store.addEpic(data);
       UI.toast(data.plannedStart ? 'Эпик добавлен в план' : 'Эпик добавлен — поставьте его на шкале', 'ok');
@@ -1017,7 +1018,29 @@
     }
   }
 
-  Roadmap.init({ onOpen: openEpicModal, onCommit: commitEpicDrag });
+  /** Итог сортировки за ручку: новый приоритет, а в Ганте по людям — ещё и новый исполнитель. */
+  function reorderEpic(id, targetId, place, reassign) {
+    const moved = Store.moveEpic(id, targetId, place);
+    if (reassign !== undefined) Store.updateEpic(id, { assignee: reassign });
+    UI.render();
+    const epic = Store.epicById(id);
+    if (!epic || (!moved && reassign === undefined)) return;
+    const name = epic.key || `«${epic.title}»`;
+    UI.toast(reassign !== undefined
+      ? `${name} → ${reassign || 'без исполнителя'} · приоритет ${epic.rank}`
+      : `${name}: приоритет ${epic.rank}`, 'ok');
+  }
+
+  /** Тост, если правка перевела эпик через черту груминга — это главное событие на груминге. */
+  function announceReadiness(before, epic) {
+    const after = Epics.isGroomed(epic);
+    if (before === after || after === null) return false;
+    const name = epic.key || `«${epic.title}»`;
+    UI.toast(after ? `${name} прошёл груминг ✓` : `${name} вернулся в «Не прошли груминг»`, after ? 'ok' : 'info');
+    return true;
+  }
+
+  Roadmap.init({ onOpen: openEpicModal, onCommit: commitEpicDrag, onReorder: reorderEpic });
 
   async function epicAction(act) {
     if (act === 'new') return openEpicModal(null);
@@ -1042,6 +1065,18 @@
   $('#epicsBody').addEventListener('click', e => {
     const act = e.target.closest('[data-epic-act]');
     if (act) return epicAction(act.dataset.epicAct);
+    const viewBtn = e.target.closest('[data-epics-view]');
+    if (viewBtn) {
+      Store.setSetting('epicsView', viewBtn.dataset.epicsView);
+      Roadmap.view.centerOnToday = true;
+      return Roadmap.render();
+    }
+    const stageBtn = e.target.closest('[data-stage]');
+    if (stageBtn) {
+      const id = stageBtn.dataset.stage;
+      Roadmap.view.stage = !id || Roadmap.view.stage === id ? null : id;   // повторный клик снимает фильтр
+      return Roadmap.render();
+    }
     const zoom = e.target.closest('[data-zoom]');
     if (zoom) {
       Store.setSetting('roadmapZoom', zoom.dataset.zoom);
@@ -1053,11 +1088,30 @@
       return Roadmap.render();
     }
     if (e.target.closest('a')) return;      // ключ эпика — ссылка в Jira
+    if (e.target.closest('[data-grip], input, select')) return;
     const label = e.target.closest('[data-epic-open]');
     if (label) {
       const epic = Store.epicById(label.dataset.epicOpen);
       if (epic) openEpicModal(epic);
     }
+  });
+
+  // Правки прямо в строке бэклога: статус и HLE — то, что меняется на груминге
+  $('#epicsBody').addEventListener('change', e => {
+    const statusId = e.target.dataset.inlineStatus;
+    const hleId = e.target.dataset.inlineHle;
+    const id = statusId || hleId;
+    const epic = id && Store.epicById(id);
+    if (!epic) return;
+    const before = Epics.isGroomed(epic);
+    if (statusId) Store.updateEpic(id, { status: e.target.value });
+    else Store.updateEpic(id, { hle: e.target.value === '' ? null : Number(e.target.value) });
+    UI.render();
+    if (!announceReadiness(before, epic)) UI.toast(statusId ? 'Статус обновлён' : 'HLE обновлён', 'ok');
+  });
+
+  $('#epicsBody').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.dataset.inlineHle) e.target.blur();   // Enter фиксирует оценку
   });
 
   $('#epicsBody').addEventListener('input', e => {

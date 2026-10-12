@@ -229,3 +229,81 @@ test('шкала начинается с понедельника и покры�
   assert.ok(range.start <= '2026-06-03' && range.end >= '2027-03-10');
   assert.equal(range.days % 7, 0);
 });
+
+test('приоритет: новые эпики в конце, перетаскивание перенумеровывает 1..n', () => {
+  const { Store } = loadApp();
+  const [a, b, c, d] = ['A', 'B', 'C', 'D'].map(title => Store.addEpic({ title }));
+  assert.deepEqual([a, b, c, d].map(e => e.rank), [1, 2, 3, 4]);
+  const order = () => [...Store.epics()].sort((x, y) => x.rank - y.rank).map(e => e.title).join('');
+
+  assert.equal(Store.moveEpic(d.id, a.id, 'before'), true);
+  assert.equal(order(), 'DABC');
+  Store.moveEpic(d.id, c.id, 'after');
+  assert.equal(order(), 'ABCD');
+  Store.moveEpic(a.id, b.id, 'after');
+  assert.equal(order(), 'BACD');
+  assert.equal(Store.moveEpic(a.id, b.id, 'after'), false, 'уже на месте — ничего не сохраняем');
+  assert.equal(Store.moveEpic(a.id, 'нет такого'), false);
+
+  Store.deleteEpic(b.id);
+  assert.deepEqual([...Store.epics()].sort((x, y) => x.rank - y.rank).map(e => e.rank), [1, 2, 3], 'без дыр после удаления');
+  assert.equal(Store.addEpic({ title: 'E' }).rank, 4);
+});
+
+test('старые данные без приоритета получают порядок по дате старта', () => {
+  const { Store } = loadApp();
+  const state = Store.parseImport(JSON.stringify({ sprints: [], epics: [
+    { key: 'P-3', title: 'Без дат' },
+    { key: 'P-2', title: 'Позже', plannedStart: '2026-11-02', plannedEnd: '2026-11-06' },
+    { key: 'P-1', title: 'Раньше', plannedStart: '2026-10-05', plannedEnd: '2026-10-09' },
+  ] }));
+  assert.deepEqual(state.epics.map(e => [e.key, e.rank]), [['P-3', 3], ['P-2', 2], ['P-1', 1]]);
+});
+
+test('импорт ставит новые эпики в конец приоритета и не трогает порядок существующих', () => {
+  const { Store } = loadApp();
+  const first = Store.addEpic({ key: 'PRJ-2', title: 'Был раньше' });
+  Store.upsertEpics(importCsv(Store).items);
+  assert.equal(Store.epicById(first.id).rank, 1);
+  assert.deepEqual(Store.epics().map(e => e.rank).sort(), [1, 2, 3]);
+});
+
+test('готовность: груминг пройден, когда требования понятны и HLE проставлен', () => {
+  const { Epics } = loadApp();
+  const st = (status, hle = null) => Epics.stage({ status, hle });
+  assert.equal(st('backlog', 5), 'requirements', 'HLE без понятных требований не считается');
+  assert.equal(st('requirements'), 'requirements');
+  assert.equal(st('ready_for_hle'), 'estimate');
+  assert.equal(st('ready_for_hle', 8), 'ready');
+  ['development', 'ready_for_testing', 'testing', 'ready_for_deploy']
+    .forEach(s => assert.equal(st(s), 'progress', s));
+  assert.equal(st('done'), 'closed');
+  assert.equal(st('rejected'), 'closed');
+
+  assert.equal(Epics.isGroomed({ status: 'ready_for_hle', hle: 3 }), true);
+  assert.equal(Epics.isGroomed({ status: 'ready_for_hle', hle: null }), false);
+  assert.equal(Epics.isGroomed({ status: 'done', hle: null }), null);
+});
+
+test('сводка готовности и группы «прошли / не прошли груминг»', () => {
+  const { Epics } = loadApp();
+  const list = [
+    { id: '1', key: 'P-1', rank: 3, status: 'backlog', hle: null },
+    { id: '2', key: 'P-2', rank: 2, status: 'ready_for_hle', hle: null },
+    { id: '3', key: 'P-3', rank: 1, status: 'ready_for_hle', hle: 8 },
+    { id: '4', key: 'P-4', rank: 4, status: 'development', hle: 12 },
+    { id: '5', key: 'P-5', rank: 5, status: 'done', hle: 4 },
+  ];
+  const r = Epics.readiness(list);
+  assert.deepEqual(r.groomed, { count: 2, hle: 20 });
+  assert.deepEqual(r.ungroomed, { count: 2, hle: 0 });
+  assert.deepEqual(r.stages.map(s => [s.id, s.count]),
+    [['requirements', 1], ['estimate', 1], ['ready', 1], ['progress', 1], ['closed', 1]]);
+
+  const groups = Epics.groupRows(list, 'readiness');
+  assert.deepEqual(groups.map(g => [g.key, g.epics.map(e => e.key)]), [
+    ['groomed', ['P-3', 'P-4']],
+    ['ungroomed', ['P-2', 'P-1']],          // по приоритету, а не по порядку в массиве
+    ['closed', ['P-5']],
+  ]);
+});

@@ -19,7 +19,8 @@
      }],
      epics: [{ id, key:string, issueId:string, title, author, assignee, status,
                createdAt:ISO, plannedStart:'YYYY-MM-DD'|null, plannedEnd:'YYYY-MM-DD'|null,
-               hle:number|null }]   // HLE — высокоуровневая оценка в человеко-днях
+               hle:number|null,     // HLE — высокоуровневая оценка в человеко-днях
+               rank:number }]       // ручной приоритет: 1 — самый важный
    }
    ============================================================ */
 const Store = (() => {
@@ -402,7 +403,7 @@ const Store = (() => {
         metricMode: 'points', chartMode: 'burndown',
         statusMap: {}, csvMapping: null, sidebarCollapsed: false,
         taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false, summaryWithPace: false,
-        roadmapZoom: 'month', roadmapGroup: 'assignee', roadmapShowClosed: false,
+        roadmapZoom: 'month', roadmapGroup: 'assignee', roadmapShowClosed: false, epicsView: 'gantt',
         epicCsvMapping: null, epicStatusMap: {},
       },
       sprints: [],
@@ -442,7 +443,23 @@ const Store = (() => {
       plannedStart,
       plannedEnd,
       hle: normalizeDays(e.hle),
+      rank: e.rank !== null && e.rank !== undefined && Number.isFinite(Number(e.rank)) ? Number(e.rank) : null,
     };
+  }
+
+  /**
+   * Перенумеровывает приоритеты 1..n. Эпики без приоритета (старые бэкапы) встают в конец
+   * в порядке «запланированные по дате старта, потом по ключу» — так выглядел список до ручной сортировки.
+   */
+  function rerank(list) {
+    const noRank = Number.POSITIVE_INFINITY;
+    const sorted = [...list].sort((a, b) =>
+      (a.rank ?? noRank) - (b.rank ?? noRank) ||
+      (!!b.plannedStart - !!a.plannedStart) ||
+      String(a.plannedStart || '').localeCompare(String(b.plannedStart || '')) ||
+      a.key.localeCompare(b.key, 'ru', { numeric: true }));
+    sorted.forEach((e, i) => { e.rank = i + 1; });
+    return list;
   }
 
   /** Приводит любые входные данные (в т.ч. импорт) к валидной форме. */
@@ -516,7 +533,8 @@ const Store = (() => {
       summaryWithPeople: !!rawSettings.summaryWithPeople,
       summaryWithPace: !!rawSettings.summaryWithPace,
       roadmapZoom: ['week', 'month', 'quarter'].includes(rawSettings.roadmapZoom) ? rawSettings.roadmapZoom : 'month',
-      roadmapGroup: rawSettings.roadmapGroup === 'none' ? 'none' : 'assignee',
+      roadmapGroup: ['none', 'readiness'].includes(rawSettings.roadmapGroup) ? rawSettings.roadmapGroup : 'assignee',
+      epicsView: rawSettings.epicsView === 'backlog' ? 'backlog' : 'gantt',
       roadmapShowClosed: !!rawSettings.roadmapShowClosed,
       epicCsvMapping: rawSettings.epicCsvMapping && typeof rawSettings.epicCsvMapping === 'object'
         ? rawSettings.epicCsvMapping : null,
@@ -528,7 +546,7 @@ const Store = (() => {
       });
     }
     // Бэкапы до появления эпиков их не содержат — это не ошибка, а пустой план
-    const epics = Array.isArray(raw.epics) ? raw.epics.filter(Boolean).map(normalizeEpic) : [];
+    const epics = rerank(Array.isArray(raw.epics) ? raw.epics.filter(Boolean).map(normalizeEpic) : []);
     const activeSprintId = sprints.some(s => s.id === raw.activeSprintId)
       ? raw.activeSprintId
       : (sprints.find(s => s.status === 'active') || sprints[0] || {}).id || null;
@@ -1143,8 +1161,11 @@ const Store = (() => {
   const epics = () => state.epics;
   const epicById = id => state.epics.find(e => e.id === id) || null;
 
+  /** Следующий приоритет — новые эпики встают в конец списка. */
+  const nextRank = () => state.epics.reduce((max, e) => Math.max(max, e.rank || 0), 0) + 1;
+
   function addEpic(data) {
-    const epic = normalizeEpic({ ...data, id: null, createdAt: data.createdAt || null });
+    const epic = normalizeEpic({ ...data, id: null, createdAt: data.createdAt || null, rank: nextRank() });
     state.epics.push(epic);
     save();
     return epic;
@@ -1159,8 +1180,29 @@ const Store = (() => {
   }
 
   function deleteEpic(id) {
-    state.epics = state.epics.filter(e => e.id !== id);
+    state.epics = rerank(state.epics.filter(e => e.id !== id));
     save();
+  }
+
+  /**
+   * Ручная сортировка: ставит эпик перед или после другого. Приоритет общий на весь список,
+   * поэтому внутри любой группировки (по людям, по готовности) порядок остаётся тем же.
+   *
+   * @param {'before'|'after'} place
+   * @returns {boolean} поменялось ли что-то
+   */
+  function moveEpic(id, targetId, place = 'before') {
+    if (id === targetId) return false;
+    const order = [...state.epics].sort((a, b) => a.rank - b.rank);
+    const from = order.findIndex(e => e.id === id);
+    if (from === -1 || !order.some(e => e.id === targetId)) return false;
+    const [moved] = order.splice(from, 1);
+    const to = order.findIndex(e => e.id === targetId) + (place === 'after' ? 1 : 0);
+    order.splice(to, 0, moved);
+    const changed = order.some((e, i) => e.rank !== i + 1);
+    order.forEach((e, i) => { e.rank = i + 1; });
+    if (changed) save();
+    return changed;
   }
 
   /**
@@ -1177,7 +1219,7 @@ const Store = (() => {
     (items || []).forEach(item => {
       const existing = item.key && state.epics.find(e => e.key === item.key);
       if (!existing) {
-        state.epics.push(normalizeEpic({ ...item, id: null }));
+        state.epics.push(normalizeEpic({ ...item, id: null, rank: nextRank() }));
         added++;
         return;
       }
@@ -1216,7 +1258,7 @@ const Store = (() => {
   function epicsToCsv(list) {
     const head = ['Ключ проблемы', 'Идентификатор проблемы', 'Тема', 'Исполнитель', 'Статус',
                   'HLE', 'Planned Start', 'Planned End'];
-    const rows = (list || state.epics).map(e => [
+    const rows = [...(list || state.epics)].sort((a, b) => a.rank - b.rank).map(e => [
       e.key, e.issueId, e.title, e.assignee, epicStatusById(e.status).label,
       e.hle === null ? '' : String(e.hle), e.plannedStart || '', e.plannedEnd || '',
     ]);
@@ -1290,6 +1332,6 @@ const Store = (() => {
     // эпики
     EPIC_STATUSES, EPIC_STATUS_IDS, epicStatusById, isEpicClosed, matchEpicStatus, parseDateOnly,
     EPIC_CSV_HINTS, EPIC_CSV_FIELDS, EPIC_CSV_LABELS, epicItemsFromCsv, epicsToCsv, exportEpicsCsv,
-    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics,
+    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics, moveEpic,
   };
 })();
