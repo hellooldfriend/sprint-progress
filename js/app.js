@@ -37,6 +37,7 @@
     if (e.key === 'Escape') {
       const open = $$('.modal').find(m => !m.hidden);
       if (open) { closeModal(open.id); return; }
+      $('#epicMenu').hidden = true;
       $('#sprintMenu').hidden = true;
       document.body.classList.remove('nav-open');
     }
@@ -881,10 +882,7 @@
       form.hle.value = epic.hle === null ? '' : epic.hle;
       form.plannedStart.value = epic.plannedStart || '';
       form.plannedEnd.value = epic.plannedEnd || '';
-      $('#epicCreatedHint').textContent = [
-        `Создано ${new Date(epic.createdAt).toLocaleDateString('ru-RU')}`,
-        epic.author ? `автор ${epic.author}` : '',
-      ].filter(Boolean).join(' · ');
+      $('#epicCreatedHint').textContent = `Создано ${new Date(epic.createdAt).toLocaleDateString('ru-RU')}`;
     } else {
       form.status.value = 'backlog';
       $('#epicCreatedHint').textContent = '';
@@ -1081,6 +1079,66 @@
   }
 
   Queue.init({ onOpen: openEpicModal, onPlace: placeInQueue });
+
+  /* ── Меню эпика по правой кнопке ── */
+
+  let menuEpicId = null;
+
+  function closeEpicMenu() {
+    $('#epicMenu').hidden = true;
+    menuEpicId = null;
+  }
+
+  document.addEventListener('contextmenu', e => {
+    const target = e.target.closest('#queueBody [data-qcard], #epicsBody [data-sort-id]');
+    if (!target || e.target.closest('a, input, select')) return;   // на ссылке и поле — обычное меню браузера
+    const epic = Store.epicById(target.dataset.qcard || target.dataset.sortId);
+    if (!epic) return;
+    e.preventDefault();
+    menuEpicId = epic.id;
+
+    const ranks = Store.epics().map(x => x.rank);
+    const menu = $('#epicMenu');
+    const inQueueTab = UI.view.tab === 'queue';
+    $('#epicMenuTitle').textContent = epic.key ? `${epic.key} · ${epic.title}` : epic.title;
+    menu.querySelector('[data-ctx="top"]').disabled = epic.rank === Math.min(...ranks);
+    menu.querySelector('[data-ctx="bottom"]').disabled = epic.rank === Math.max(...ranks);
+    // Действия очереди — только на её вкладке, там они ожидаемы
+    const thisWeek = Store.mondayOf(Store.today());
+    menu.querySelector('[data-ctx-queue-sep]').hidden = !inQueueTab;
+    menu.querySelector('[data-ctx="take"]').hidden = !inQueueTab || (epic.queue && epic.queue.week === thisWeek);
+    menu.querySelector('[data-ctx="unqueue"]').hidden = !inQueueTab || !epic.queue;
+
+    menu.hidden = false;
+    // Не даём меню вылезти за край окна
+    const { width, height } = menu.getBoundingClientRect();
+    menu.style.left = `${Math.min(e.clientX, window.innerWidth - width - 8)}px`;
+    menu.style.top = `${Math.min(e.clientY, window.innerHeight - height - 8)}px`;
+  });
+
+  $('#epicMenu').addEventListener('click', e => {
+    const btn = e.target.closest('[data-ctx]');
+    if (!btn || btn.disabled) return;
+    const epic = Store.epicById(menuEpicId);
+    closeEpicMenu();
+    if (!epic) return;
+    const name = epic.key || `«${epic.title}»`;
+    const act = btn.dataset.ctx;
+
+    if (act === 'open') return openEpicModal(epic);
+    if (act === 'top' || act === 'bottom') {
+      Store.moveEpicToEdge(epic.id, act);
+      UI.render();
+      return UI.toast(act === 'top' ? `${name} — в самом верху` : `${name} — в самом низу`, 'ok');
+    }
+    if (act === 'take') return placeInQueue(epic, { week: Store.mondayOf(Store.today()) });
+    if (act === 'unqueue') return placeInQueue(epic, { week: null });
+  });
+
+  // Закрытие: клик мимо, прокрутка, Esc, смена размера окна
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('#epicMenu')) closeEpicMenu(); });
+  document.addEventListener('scroll', closeEpicMenu, true);
+  window.addEventListener('resize', closeEpicMenu);
 
   /** Planned Start / End → очередь. Как и прямой перенос — с подтверждением, если что-то перезапишется. */
   async function planToQueue() {
@@ -1352,7 +1410,6 @@
           <span class="bulk-row__title">${UI.esc(item.title)}</span>
           <span class="tag"><i class="dot ${st.dot}"></i>${st.label}</span>
           ${item.hle !== null ? `<span class="tag tag--points">${Metrics.fmt(item.hle)} п/д</span>` : ''}
-          ${item.assignee ? `<span class="tag tag--assignee">${UI.esc(item.assignee)}</span>` : ''}
           ${item.plannedStart && item.plannedEnd ? `<span class="tag">${Store.formatRange(item.plannedStart, item.plannedEnd)}</span>` : ''}
           ${conflict ? `<span class="tag tag--longrun" title="Здесь: ${Store.formatRange(existing.plannedStart, existing.plannedEnd)}">${overwrite ? 'даты из файла' : 'даты оставим наши'}</span>` : ''}
           ${existing ? '<span class="tag tag--update">обновит</span>' : ''}

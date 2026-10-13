@@ -441,3 +441,20 @@ test('круг очередь → Planned → очередь ничего не �
   assert.equal(back.changes.length, 0);
   assert.equal(back.same, 1);
 });
+
+test('в самый верх и в самый низ приоритета', () => {
+  const { Store } = loadApp();
+  const [a, b, c] = ['A', 'B', 'C'].map(title => Store.addEpic({ title }));
+  const order = () => [...Store.epics()].sort((x, y) => x.rank - y.rank).map(e => e.title).join('');
+
+  assert.equal(Store.moveEpicToEdge(c.id, 'top'), true);
+  assert.equal(order(), 'CAB');
+  assert.equal(Store.moveEpicToEdge(c.id, 'top'), false, 'уже наверху — ничего не сохраняем');
+  Store.moveEpicToEdge(c.id, 'bottom');
+  assert.equal(order(), 'ABC');
+  Store.moveEpicToEdge(a.id, 'bottom');
+  assert.equal(order(), 'BCA');
+  assert.deepEqual([...Store.epics()].map(e => e.rank).sort(), [1, 2, 3]);
+  assert.equal(Store.moveEpicToEdge('нет такого', 'top'), false);
+  assert.equal(b.rank, 1);
+});

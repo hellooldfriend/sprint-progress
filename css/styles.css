@@ -1122,6 +1122,18 @@ body.is-sort-blocked, body.is-sort-blocked * { cursor: not-allowed !important; }
 .queue__team { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .queue__now-text b { color: var(--text); font-weight: 600; }
 
+/* Меню эпика по правой кнопке */
+.ctx-menu { position: fixed; right: auto; top: 0; left: 0; z-index: 180; min-width: 230px; max-width: 320px; }
+.ctx-menu button { display: flex; align-items: center; gap: 9px; }
+.ctx-menu button:disabled { opacity: .35; cursor: default; }
+.ctx-menu button:disabled:hover { background: none; color: var(--muted); }
+.ctx-menu__title {
+  padding: 6px 10px 7px; font-size: 11.5px; color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border); margin-bottom: 3px;
+}
+.ctx-menu__sep { height: 1px; background: var(--border); margin: 3px 4px; }
+
 /* ─────────────── 11. Адаптив ─────────────── */
 .scrim { display: none; }
 

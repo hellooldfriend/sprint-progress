@@ -319,9 +319,8 @@ const Roadmap = (() => {
 
   /* ── Группа: строка человека с загрузкой + его эпики ── */
   function groupHTML(g, mode, load, weeks, today) {
-    const grouped = mode === 'assignee';
     const scope = g.key || 'all';
-    const rows = g.epics.map(e => rowHTML(e, scope, grouped, today)).join('');
+    const rows = g.epics.map(e => rowHTML(e, scope, today)).join('');
     if (mode === 'none') return rows;
 
     if (mode === 'readiness') {
@@ -379,7 +378,7 @@ const Roadmap = (() => {
 
   const GRIP = '<span class="grip" data-grip title="Перетащите, чтобы поменять приоритет" aria-hidden="true"></span>';
 
-  function rowHTML(e, scope, grouped, today) {
+  function rowHTML(e, scope, today) {
     const st = Store.epicStatusById(e.status);
     const stg = Epics.stageById(Epics.stage(e));
     const problems = Epics.issues(e, today);
@@ -398,7 +397,6 @@ const Roadmap = (() => {
           <div class="gl__line gl__meta">
             <span class="tag"><i class="dot ${st.dot}"></i>${esc(st.label)}</span>
             <span class="tag ${e.hle === null ? 'tag--dropped' : 'tag--points'}">${e.hle === null ? 'нет HLE' : `${Metrics.fmt(e.hle)} п/д`}</span>
-            ${!grouped && e.assignee ? `<span class="tag tag--assignee">${esc(e.assignee)}</span>` : ''}
             ${worst ? `<span class="gl__warn gl__warn--${worst}" title="${esc(problems.map(p => p.text).join('\n'))}">!</span>` : ''}
           </div>
         </div>
@@ -500,7 +498,6 @@ const Roadmap = (() => {
     const worst = problems.some(p => p.level === 'err') ? 'err' : problems.length ? 'warn' : '';
     const meta = [
       e.key ? `<span class="gl__key">${keyHTML(e)}</span>` : '',
-      e.assignee ? `<span>${esc(e.assignee)}</span>` : '<span class="txt-faint">без исполнителя</span>',
       Epics.isScheduled(e) ? `<span>${Store.formatRange(e.plannedStart, e.plannedEnd)}</span>` : '<span class="txt-faint">без дат</span>',
     ].join('<span class="bl-dot">·</span>');
 

@@ -244,7 +244,6 @@ const Queue = (() => {
         <div class="qcard__meta">
           <span class="tag"><i class="dot ${st.dot}"></i>${esc(st.label)}</span>
           <span class="tag ${e.hle === null ? 'tag--dropped' : 'tag--points'}">${e.hle === null ? 'нет HLE' : `${Metrics.fmt(e.hle)} п/д`}</span>
-          ${e.assignee ? `<span class="tag tag--assignee">${esc(e.assignee)}</span>` : ''}
         </div>
         <div class="qcard__foot">
           <span>${span} ${Metrics.plural(span, 'неделя', 'недели', 'недель')}</span>

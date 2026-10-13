@@ -1204,6 +1204,23 @@ const Store = (() => {
   }
 
   /**
+   * В самый верх или в самый низ общего приоритета — одним действием, без перетаскивания через весь список.
+   * @param {'top'|'bottom'} edge
+   * @returns {boolean} поменялось ли что-то
+   */
+  function moveEpicToEdge(id, edge) {
+    const order = [...state.epics].sort((a, b) => a.rank - b.rank);
+    const from = order.findIndex(e => e.id === id);
+    if (from === -1) return false;
+    const [moved] = order.splice(from, 1);
+    if (edge === 'top') order.unshift(moved); else order.push(moved);
+    const changed = order.some((e, i) => e.rank !== i + 1);
+    order.forEach((e, i) => { e.rank = i + 1; });
+    if (changed) save();
+    return changed;
+  }
+
+  /**
    * Ручная сортировка: ставит эпик перед или после другого. Приоритет общий на весь список,
    * поэтому внутри любой группировки (по людям, по готовности) порядок остаётся тем же.
    *
@@ -1396,6 +1413,6 @@ const Store = (() => {
     // эпики
     EPIC_STATUSES, EPIC_STATUS_IDS, epicStatusById, isEpicClosed, matchEpicStatus, parseDateOnly,
     EPIC_CSV_HINTS, EPIC_CSV_FIELDS, EPIC_CSV_LABELS, epicItemsFromCsv, epicsToCsv, exportEpicsCsv,
-    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics, moveEpic, setEpicQueue, applyQueuePlan, applyPlanToQueue, mondayOf, QUEUE_MAX_SPAN,
+    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics, moveEpic, moveEpicToEdge, setEpicQueue, applyQueuePlan, applyPlanToQueue, mondayOf, QUEUE_MAX_SPAN,
   };
 })();
