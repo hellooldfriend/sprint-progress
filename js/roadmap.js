@@ -263,7 +263,12 @@ const Roadmap = (() => {
         </div>` : ''}
         <button class="btn btn--ghost btn--sm ${s.roadmapShowClosed ? 'is-on' : ''}" data-epic-act="toggle-closed"
                 title="Готово и Rejected">${s.roadmapShowClosed ? 'Скрыть закрытые' : 'Показать закрытые'}</button>
-        ${gantt ? '<button class="btn btn--ghost btn--sm" data-epic-act="today">Сегодня</button>' : ''}
+        ${gantt ? `<button class="btn btn--ghost btn--sm" data-epic-act="today">Сегодня</button>
+        <button class="btn btn--ghost btn--sm" data-epic-act="plan-to-queue"
+                title="Разложить эпики по неделям очереди по их Planned Start / End">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6M18 3v4h-4M6 21v-4h4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          В очередь
+        </button>` : ''}
         ${view.stage ? `<button class="chip chip--reset" data-stage="">Стадия: ${esc(Epics.stageById(view.stage).label)} ✕</button>` : ''}
         <span class="hint" id="epicCount">${shown === total
           ? `${total} ${Metrics.plural(total, 'эпик', 'эпика', 'эпиков')}`

@@ -1050,12 +1050,122 @@
       Store.exportEpicsCsv(Roadmap.visibleEpics());
       return UI.toast('CSV с планом скачан — его можно залить в Jira', 'ok');
     }
-    if (act === 'today') return Roadmap.scrollToToday();
+    if (act === 'today') return UI.view.tab === 'queue' ? Queue.scrollToNow() : Roadmap.scrollToToday();
+    if (act === 'queue-to-plan') return queueToPlan();
+    if (act === 'plan-to-queue') return planToQueue();
     if (act === 'toggle-closed') {
       Store.setSetting('roadmapShowClosed', !Store.get().settings.roadmapShowClosed);
-      return Roadmap.render();
+      return UI.render();
     }
   }
+
+  /* ── Очередь эпиков ── */
+
+  /** Итог перетаскивания на доске очереди: неделя, длина, приоритет — или обратно в пул. */
+  function placeInQueue(epic, { week, span, before }) {
+    if (before) Store.moveEpic(epic.id, before, 'before');
+    const wasQueued = !!epic.queue;
+    const oldWeek = wasQueued ? epic.queue.week : null;
+    const updated = Store.setEpicQueue(epic.id, week, span || (wasQueued ? null : Epics.defaultSpan(epic.hle)));
+    UI.render();
+    if (!updated) return;
+    const name = updated.key || `«${updated.title}»`;
+    if (!week) return UI.toast(`${name} убран из очереди`);
+    const target = before && Store.epicById(before);
+    // Бросили на соседа в той же неделе — это смена порядка, а не переезд
+    if (target && oldWeek === updated.queue.week) {
+      return UI.toast(`${name} выше, чем ${target.key || `«${target.title}»`}`, 'ok');
+    }
+    const weeksText = `${updated.queue.span} ${Metrics.plural(updated.queue.span, 'неделя', 'недели', 'недель')}`;
+    UI.toast(`${name}: с ${Store.formatDate(updated.queue.week)} · ${weeksText}`, 'ok');
+  }
+
+  Queue.init({ onOpen: openEpicModal, onPlace: placeInQueue });
+
+  /** Planned Start / End → очередь. Как и прямой перенос — с подтверждением, если что-то перезапишется. */
+  async function planToQueue() {
+    const { changes, same } = Epics.planToQueue(Store.epics());
+    if (!changes.length) {
+      return UI.toast(same ? 'Очередь уже совпадает с Planned-датами' : 'Ни у одного открытого эпика нет Planned Start / End',
+        same ? 'ok' : 'err');
+    }
+    const plural = n => `${n} ${Metrics.plural(n, 'эпик', 'эпика', 'эпиков')}`;
+    const ofPlural = n => `${n} ${Metrics.plural(n, 'эпика', 'эпиков', 'эпиков')}`;
+    const weeksText = n => `${n} ${Metrics.plural(n, 'неделя', 'недели', 'недель')}`;
+    const fresh = changes.filter(c => !c.overwrite).length;
+    const over = changes.filter(c => c.overwrite);
+    const sample = over.slice(0, 3)
+      .map(c => `${c.epic.key || c.epic.title}: с ${Store.formatDate(c.epic.queue.week)}, ${weeksText(c.epic.queue.span)} → ` +
+                `с ${Store.formatDate(c.week)}, ${weeksText(c.span)}`)
+      .join('; ');
+
+    const ok = await confirmDialog({
+      title: 'Разложить очередь по Planned-датам?',
+      text: [
+        fresh ? `${plural(fresh)} ${Metrics.plural(fresh, 'встанет', 'встанут', 'встанут')} в очередь впервые.` : '',
+        over.length ? `У ${ofPlural(over.length)} место в очереди поменяется: ${sample}${over.length > 3 ? ' и др.' : ''}.` : '',
+        same ? `Ещё у ${ofPlural(same)} всё уже совпадает.` : '',
+        'Неделя — та, где Planned Start, длина — сколько недель задевает окно. Эпики без дат и закрытые не тронем.',
+      ].filter(Boolean).join(' '),
+      okLabel: 'Разложить',
+      danger: over.length > 0,
+    });
+    if (!ok) return;
+    const applied = Store.applyPlanToQueue(changes);
+    UI.render();
+    UI.toast(`В очереди обновлено ${plural(applied)}`, 'ok');
+  }
+
+  /** Очередь → Planned Start / End. Перезапись чужих дат — только после подтверждения. */
+  async function queueToPlan() {
+    const { changes, same } = Epics.queueToPlan(Store.epics());
+    if (!changes.length) {
+      return UI.toast(same ? 'Planned-даты уже совпадают с очередью' : 'В очереди нет открытых эпиков', same ? 'ok' : 'err');
+    }
+    const fresh = changes.filter(c => !c.overwrite).length;
+    const over = changes.filter(c => c.overwrite);
+    const plural = n => `${n} ${Metrics.plural(n, 'эпик', 'эпика', 'эпиков')}`;
+    const ofPlural = n => `${n} ${Metrics.plural(n, 'эпика', 'эпиков', 'эпиков')}`;   // «у 1 эпика», «у 5 эпиков»
+    const sample = over.slice(0, 3)
+      .map(c => `${c.epic.key || c.epic.title}: ${Store.formatRange(c.epic.plannedStart || c.epic.plannedEnd, c.epic.plannedEnd || c.epic.plannedStart)} → ${Store.formatRange(c.start, c.end)}`)
+      .join('; ');
+
+    const ok = await confirmDialog({
+      title: 'Перенести очередь в Planned Start/End?',
+      text: [
+        fresh ? `${plural(fresh)} ${Metrics.plural(fresh, 'получит', 'получат', 'получат')} даты впервые.` : '',
+        over.length ? `У ${ofPlural(over.length)} даты перезапишутся: ${sample}${over.length > 3 ? ' и др.' : ''}.` : '',
+        same ? `Ещё у ${ofPlural(same)} даты уже совпадают.` : '',
+        'Старт — понедельник первой недели, окончание — пятница последней. Эпики вне очереди и закрытые не тронем.',
+      ].filter(Boolean).join(' '),
+      okLabel: 'Перенести',
+      danger: over.length > 0,
+    });
+    if (!ok) return;
+    const applied = Store.applyQueuePlan(changes);
+    UI.render();
+    UI.toast(`Planned-даты обновлены у ${ofPlural(applied)} — видно на Ганте и в выгрузке CSV`, 'ok');
+  }
+
+  $('#queueBody').addEventListener('click', e => {
+    const act = e.target.closest('[data-epic-act]');
+    if (act) epicAction(act.dataset.epicAct);
+  });
+
+  $('#queueBody').addEventListener('input', e => {
+    if (e.target.id !== 'queueSearch') return;
+    Queue.view.query = e.target.value;
+    Queue.render();
+    const input = $('#queueSearch');
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+
+  $('#queueBody').addEventListener('change', e => {
+    if (e.target.id !== 'queueTeam') return;
+    Store.setSetting('queueTeamSize', Store.normalizeDays(e.target.value));
+    Queue.render();
+  });
 
   $('#epicActions').addEventListener('click', e => {
     const btn = e.target.closest('[data-epic-act]');
@@ -1530,11 +1640,12 @@
     const modalOpen = $$('.modal').some(m => !m.hidden);
     if (typing || modalOpen || e.metaKey || e.ctrlKey || e.altKey) return;
 
-    if (UI.view.tab === 'epics' && (e.key === 'n' || e.key === 'т')) {   // новый эпик
+    const epicTab = UI.view.tab === 'epics' || UI.view.tab === 'queue';
+    if (epicTab && (e.key === 'n' || e.key === 'т')) {   // новый эпик
       e.preventDefault();
       openEpicModal(null);
-    } else if (UI.view.tab === 'epics' && e.key === '/') {
-      const input = $('#epicSearch');
+    } else if (epicTab && e.key === '/') {
+      const input = $(UI.view.tab === 'queue' ? '#queueSearch' : '#epicSearch');
       if (input) { e.preventDefault(); input.focus(); }
     } else if (e.key === 'n' || e.key === 'т') {           // новая задача
       const s = Store.activeSprint();

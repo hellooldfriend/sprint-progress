@@ -307,3 +307,137 @@ test('сводка готовности и группы «прошли / не п
     ['closed', ['P-5']],
   ]);
 });
+
+test('очередь: неделя приводится к понедельнику, длина — к целым неделям', () => {
+  const { Store } = loadApp();
+  const e = Store.addEpic({ title: 'A' });
+  assert.equal(e.queue, null, 'новый эпик не в очереди');
+
+  Store.setEpicQueue(e.id, '2026-10-15', 2.6);                  // четверг
+  assert.deepEqual(Store.epicById(e.id).queue, { week: '2026-10-12', span: 3 });
+  Store.setEpicQueue(e.id, '2026-10-26');
+  assert.deepEqual(Store.epicById(e.id).queue, { week: '2026-10-26', span: 3 }, 'без длины — прежняя');
+  Store.setEpicQueue(e.id, '2026-10-26', 999);
+  assert.equal(Store.epicById(e.id).queue.span, Store.QUEUE_MAX_SPAN);
+  Store.setEpicQueue(e.id, null);
+  assert.equal(Store.epicById(e.id).queue, null);
+
+  assert.equal(Store.addEpic({ title: 'B', queue: { week: 'мусор', span: 2 } }).queue, null);
+  assert.equal(Store.mondayOf('2026-10-18'), '2026-10-12', 'воскресенье — к своему понедельнику');
+});
+
+test('очередь не трогает Planned Start / End', () => {
+  const { Store } = loadApp();
+  const e = Store.addEpic({ title: 'A', plannedStart: '2026-11-02', plannedEnd: '2026-11-13' });
+  Store.setEpicQueue(e.id, '2026-10-12', 2);
+  assert.equal(Store.epicById(e.id).plannedStart, '2026-11-02');
+  assert.equal(Store.epicById(e.id).plannedEnd, '2026-11-13');
+});
+
+test('длина по умолчанию — HLE на рабочую неделю одного человека', () => {
+  const { Epics } = loadApp();
+  assert.equal(Epics.defaultSpan(null), 2);
+  assert.equal(Epics.defaultSpan(5), 1);
+  assert.equal(Epics.defaultSpan(12), 3);
+  assert.equal(Epics.defaultSpan(1000), 26);
+});
+
+test('недели доски и сколько взято на каждую', () => {
+  const { Store, Epics } = loadApp();
+  const today = '2026-10-14';                                    // среда, неделя с 12 октября
+  const list = [
+    { id: 'a', status: 'development', hle: 10, queue: { week: '2026-10-12', span: 2 } },   // 1 чел
+    { id: 'b', status: 'ready_for_hle', hle: 5, queue: { week: '2026-10-19', span: 1 } },  // 1 чел
+    { id: 'c', status: 'backlog', hle: null, queue: { week: '2026-10-19', span: 1 } },     // не оценён
+    { id: 'd', status: 'done', hle: 50, queue: { week: '2026-10-12', span: 1 } },          // закрыт
+    { id: 'e', status: 'backlog', hle: 3, queue: null },
+  ];
+  const weeks = Epics.queueWeeks(list, today);
+  assert.equal(weeks[0], '2026-10-12');
+  assert.equal(weeks.length, 12, 'минимум квартал вперёд');
+
+  const [w1, w2, w3] = Epics.queueStats(list, weeks);
+  assert.deepEqual([w1.count, w1.people], [1, 1], 'закрытый эпик неделю не занимает');
+  assert.deepEqual([w2.count, w2.people, w2.unknown, w2.ungroomed], [3, 2, 1, 1]);
+  assert.equal(w3.count, 0);
+
+  assert.equal(Epics.queueWeeks([{ queue: { week: '2026-09-28', span: 1 } }], today)[0], '2026-09-28',
+    'эпик, оставшийся в прошлом, не пропадает с доски');
+  const far = Epics.queueWeeks([{ queue: { week: '2027-03-01', span: 4 } }], today);
+  assert.equal(far[far.length - 1], '2027-04-05', 'две недели запаса за последним эпиком');
+});
+
+test('бэкап сохраняет очередь и размер команды', () => {
+  const { Store } = loadApp();
+  const e = Store.addEpic({ title: 'A' });
+  Store.setEpicQueue(e.id, '2026-10-12', 2);
+  Store.setSetting('queueTeamSize', 4);
+  const restored = Store.parseImport(JSON.stringify(Store.get()));
+  assert.deepEqual(restored.epics[0].queue, { week: '2026-10-12', span: 2 });
+  assert.equal(restored.settings.queueTeamSize, 4);
+});
+
+test('перенос очереди в Planned: пн первой недели — пт последней, закрытые и совпадающие не трогаем', () => {
+  const { Store, Epics } = loadApp();
+  const fresh = Store.addEpic({ key: 'P-1', title: 'Новый' });
+  const moved = Store.addEpic({ key: 'P-2', title: 'Был план', plannedStart: '2026-12-01', plannedEnd: '2026-12-10' });
+  const same = Store.addEpic({ key: 'P-3', title: 'Совпадает', plannedStart: '2026-10-12', plannedEnd: '2026-10-16' });
+  const done = Store.addEpic({ key: 'P-4', title: 'Закрыт', status: 'done' });
+  Store.addEpic({ key: 'P-5', title: 'Вне очереди', plannedStart: '2026-11-02', plannedEnd: '2026-11-06' });
+  Store.setEpicQueue(fresh.id, '2026-10-12', 3);
+  Store.setEpicQueue(moved.id, '2026-10-19', 1);
+  Store.setEpicQueue(same.id, '2026-10-12', 1);
+  Store.setEpicQueue(done.id, '2026-10-12', 1);
+
+  const { changes, same: unchanged } = Epics.queueToPlan(Store.epics());
+  assert.equal(unchanged, 1);
+  assert.deepEqual(changes.map(c => [c.epic.key, c.start, c.end, c.overwrite]), [
+    ['P-1', '2026-10-12', '2026-10-30', false],
+    ['P-2', '2026-10-19', '2026-10-23', true],
+  ]);
+
+  assert.equal(Store.applyQueuePlan(changes), 2);
+  const byKey = k => Store.epics().find(e => e.key === k);
+  assert.deepEqual([byKey('P-1').plannedStart, byKey('P-1').plannedEnd], ['2026-10-12', '2026-10-30']);
+  assert.equal(byKey('P-2').plannedStart, '2026-10-19');
+  assert.equal(byKey('P-4').plannedStart, null, 'закрытый эпик без изменений');
+  assert.equal(byKey('P-5').plannedStart, '2026-11-02', 'эпик вне очереди без изменений');
+  assert.deepEqual(byKey('P-1').queue, { week: '2026-10-12', span: 3 }, 'очередь остаётся как была');
+  assert.equal(Epics.queueToPlan(Store.epics()).changes.length, 0, 'повторный перенос — нечего менять');
+});
+
+test('обратный перенос: Planned Start / End → неделя и длина в очереди', () => {
+  const { Store, Epics } = loadApp();
+  const fresh = Store.addEpic({ key: 'P-1', title: 'Ср–вт', plannedStart: '2026-10-14', plannedEnd: '2026-10-27' });
+  const moved = Store.addEpic({ key: 'P-2', title: 'Был в очереди', plannedStart: '2026-11-02', plannedEnd: '2026-11-06' });
+  const same = Store.addEpic({ key: 'P-3', title: 'Совпадает', plannedStart: '2026-10-12', plannedEnd: '2026-10-16' });
+  const noDates = Store.addEpic({ key: 'P-4', title: 'Без дат' });
+  const done = Store.addEpic({ key: 'P-5', title: 'Закрыт', status: 'done', plannedStart: '2026-10-12', plannedEnd: '2026-10-16' });
+  Store.setEpicQueue(moved.id, '2026-10-12', 4);
+  Store.setEpicQueue(same.id, '2026-10-12', 1);
+  Store.setEpicQueue(noDates.id, '2026-10-19', 2);
+
+  const { changes, same: unchanged } = Epics.planToQueue(Store.epics());
+  assert.equal(unchanged, 1);
+  assert.deepEqual(changes.map(c => [c.epic.key, c.week, c.span, c.overwrite]), [
+    ['P-1', '2026-10-12', 3, false],       // среда → понедельник; задевает три недели
+    ['P-2', '2026-11-02', 1, true],
+  ]);
+
+  assert.equal(Store.applyPlanToQueue(changes), 2);
+  const byKey = k => Store.epics().find(e => e.key === k);
+  assert.deepEqual(byKey('P-1').queue, { week: '2026-10-12', span: 3 });
+  assert.deepEqual(byKey('P-4').queue, { week: '2026-10-19', span: 2 }, 'эпик без дат остался на месте');
+  assert.equal(byKey('P-5').queue, null, 'закрытый не трогаем');
+  assert.equal(byKey('P-1').plannedStart, '2026-10-14', 'Planned-даты не меняются');
+});
+
+test('круг очередь → Planned → очередь ничего не сдвигает', () => {
+  const { Store, Epics } = loadApp();
+  const e = Store.addEpic({ title: 'A' });
+  Store.setEpicQueue(e.id, '2026-10-12', 3);
+  Store.applyQueuePlan(Epics.queueToPlan(Store.epics()).changes);
+  const back = Epics.planToQueue(Store.epics());
+  assert.equal(back.changes.length, 0);
+  assert.equal(back.same, 1);
+});

@@ -265,7 +265,94 @@ const Epics = (() => {
       .map(g => ({ ...g, epics: g.epics.sort(byStart) }));
   }
 
+  /* ───────────── Очередь: эпики по неделям ───────────── */
+
+  /** Сколько недель занять эпику по умолчанию: HLE / 5 рабочих дней, без оценки — две недели. */
+  function defaultSpan(hle) {
+    if (!hle) return 2;
+    return Math.min(Store.QUEUE_MAX_SPAN, Math.max(1, Math.ceil(hle / 5)));
+  }
+
+  /** Последний понедельник, который занимает эпик в очереди. */
+  const queueLastWeek = e => Store.addDays(e.queue.week, (e.queue.span - 1) * 7);
+  const inQueueWeek = (e, week) => !!e.queue && week >= e.queue.week && week <= queueLastWeek(e);
+
+  /**
+   * Недели доски: с текущей (или с самой ранней занятой, если что-то осталось в прошлом)
+   * и минимум на квартал вперёд, с запасом в пару недель за последним эпиком.
+   */
+  function queueWeeks(list, today, minWeeks = 12) {
+    const now = weekStart(today);
+    let first = now, last = Store.addDays(now, (minWeeks - 1) * 7);
+    list.filter(e => e.queue).forEach(e => {
+      if (e.queue.week < first) first = e.queue.week;
+      const end = Store.addDays(queueLastWeek(e), 14);
+      if (end > last) last = end;
+    });
+    const out = [];
+    for (let w = first; w <= last; w = Store.addDays(w, 7)) out.push(w);
+    return out;
+  }
+
+  /**
+   * Что взято на каждую неделю: сколько эпиков и сколько примерно нужно людей.
+   * Человек на эпик = HLE / (недель × 5 дней) — та же модель, что и в загрузке Ганта.
+   * Закрытые эпики неделю не занимают.
+   */
+  function queueStats(list, weeks) {
+    return weeks.map(week => {
+      const here = list.filter(e => !Store.isEpicClosed(e) && inQueueWeek(e, week));
+      return {
+        week,
+        count: here.length,
+        people: here.reduce((acc, e) => acc + (e.hle ? e.hle / (e.queue.span * 5) : 0), 0),
+        unknown: here.filter(e => !e.hle).length,
+        ungroomed: here.filter(e => isGroomed(e) === false).length,
+      };
+    });
+  }
+
+  /**
+   * Что получится, если перенести очередь в Planned Start / End:
+   * старт — понедельник первой недели, окончание — пятница последней.
+   * Закрытые эпики не трогаем: их даты — уже история.
+   *
+   * @returns {{changes: Array<{epic, start, end, overwrite:boolean}>, same:number}}
+   */
+  function queueToPlan(list) {
+    const changes = [];
+    let same = 0;
+    list.filter(e => e.queue && !Store.isEpicClosed(e)).forEach(e => {
+      const start = e.queue.week;
+      const end = Store.addDays(queueLastWeek(e), 4);
+      if (e.plannedStart === start && e.plannedEnd === end) { same++; return; }
+      changes.push({ epic: e, start, end, overwrite: !!(e.plannedStart || e.plannedEnd) });
+    });
+    return { changes, same };
+  }
+
+  /**
+   * Обратный перенос: Planned Start / End → очередь. Неделя — понедельник недели старта,
+   * длина — сколько календарных недель задевает окно. Так круг «очередь → Гант → очередь»
+   * ничего не сдвигает: пн–пт трёх недель снова становятся тремя неделями.
+   * Эпики без дат и закрытые не трогаем.
+   *
+   * @returns {{changes: Array<{epic, week, span, overwrite:boolean}>, same:number}}
+   */
+  function planToQueue(list) {
+    const changes = [];
+    let same = 0;
+    list.filter(e => isScheduled(e) && !Store.isEpicClosed(e)).forEach(e => {
+      const week = weekStart(e.plannedStart);
+      const span = Math.min(Store.QUEUE_MAX_SPAN, Store.diffDays(week, weekStart(e.plannedEnd)) / 7 + 1);
+      if (e.queue && e.queue.week === week && e.queue.span === span) { same++; return; }
+      changes.push({ epic: e, week, span, overwrite: !!e.queue });
+    });
+    return { changes, same };
+  }
+
   return {
+    defaultSpan, queueLastWeek, inQueueWeek, queueWeeks, queueStats, queueToPlan, planToQueue,
     DEFAULT_WINDOW_DAYS, LOAD_WARN, NONE_KEY,
     STAGES, stageById, stage, isGroomed, READINESS_GROUPS, readinessKey, readiness,
     isScheduled, nextWorkingDay, windowFromHle, windowDays, intensity, personKey, weekStart,

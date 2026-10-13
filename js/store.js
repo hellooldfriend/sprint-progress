@@ -20,7 +20,9 @@
      epics: [{ id, key:string, issueId:string, title, author, assignee, status,
                createdAt:ISO, plannedStart:'YYYY-MM-DD'|null, plannedEnd:'YYYY-MM-DD'|null,
                hle:number|null,     // HLE — высокоуровневая оценка в человеко-днях
-               rank:number }]       // ручной приоритет: 1 — самый важный
+               rank:number,         // ручной приоритет: 1 — самый важный
+               queue:{ week:'YYYY-MM-DD' (понедельник), span:number (недель) }|null }]
+                                    // место на доске «Очередь» — не зависит от Planned Start/End
    }
    ============================================================ */
 const Store = (() => {
@@ -404,6 +406,7 @@ const Store = (() => {
         statusMap: {}, csvMapping: null, sidebarCollapsed: false,
         taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false, summaryWithPace: false,
         roadmapZoom: 'month', roadmapGroup: 'assignee', roadmapShowClosed: false, epicsView: 'gantt',
+        queueTeamSize: null,
         epicCsvMapping: null, epicStatusMap: {},
       },
       sprints: [],
@@ -423,6 +426,20 @@ const Store = (() => {
 
   const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   const isoOrNull = v => (ISO_DATE_RE.test(String(v || '')) ? String(v) : null);
+  const QUEUE_MAX_SPAN = 26;
+
+  /** Понедельник недели, в которую попадает дата. */
+  function mondayOf(iso) {
+    const day = parseDate(iso).getDay();       // 0 — воскресенье
+    return addDays(iso, day === 0 ? -6 : 1 - day);
+  }
+
+  /** Место в очереди: неделя всегда понедельник, длина — целые недели от 1 до полугода. */
+  function normalizeQueue(q) {
+    if (!q || !isoOrNull(q.week)) return null;
+    const span = Math.round(Number(q.span) || 1);
+    return { week: mondayOf(q.week), span: Math.min(QUEUE_MAX_SPAN, Math.max(1, span)) };
+  }
 
   /** Эпик в валидной форме. Даты плана либо обе, либо ни одной — полоса на Ганте без конца не рисуется. */
   function normalizeEpic(e) {
@@ -444,6 +461,7 @@ const Store = (() => {
       plannedEnd,
       hle: normalizeDays(e.hle),
       rank: e.rank !== null && e.rank !== undefined && Number.isFinite(Number(e.rank)) ? Number(e.rank) : null,
+      queue: normalizeQueue(e.queue),
     };
   }
 
@@ -536,6 +554,7 @@ const Store = (() => {
       roadmapGroup: ['none', 'readiness'].includes(rawSettings.roadmapGroup) ? rawSettings.roadmapGroup : 'assignee',
       epicsView: rawSettings.epicsView === 'backlog' ? 'backlog' : 'gantt',
       roadmapShowClosed: !!rawSettings.roadmapShowClosed,
+      queueTeamSize: normalizeDays(rawSettings.queueTeamSize),
       epicCsvMapping: rawSettings.epicCsvMapping && typeof rawSettings.epicCsvMapping === 'object'
         ? rawSettings.epicCsvMapping : null,
       epicStatusMap: {},
@@ -1248,6 +1267,51 @@ const Store = (() => {
     return { added, updated, total: (items || []).length };
   }
 
+  /**
+   * Поставить эпик в очередь на неделю (или убрать из неё — week = null).
+   * Без явной длины сохраняется прежняя.
+   */
+  function setEpicQueue(id, week, span) {
+    const e = epicById(id);
+    if (!e) return null;
+    const queue = week ? { week, span: span || (e.queue && e.queue.span) || 1 } : null;
+    return updateEpic(id, { queue });
+  }
+
+  /**
+   * Переносит раскладку очереди в Planned Start / End одним сохранением.
+   * @param {Array<{epic, start, end}>} changes результат Epics.queueToPlan
+   * @returns {number} сколько эпиков получили новые даты
+   */
+  function applyQueuePlan(changes) {
+    let applied = 0;
+    (changes || []).forEach(({ epic, start, end }) => {
+      const e = epicById(epic.id);
+      if (!e) return;
+      Object.assign(e, normalizeEpic({ ...e, plannedStart: start, plannedEnd: end }));
+      applied++;
+    });
+    if (applied) save();
+    return applied;
+  }
+
+  /**
+   * Обратный перенос: плановые даты → места в очереди, одним сохранением.
+   * @param {Array<{epic, week, span}>} changes результат Epics.planToQueue
+   * @returns {number} сколько эпиков переставлено
+   */
+  function applyPlanToQueue(changes) {
+    let applied = 0;
+    (changes || []).forEach(({ epic, week, span }) => {
+      const e = epicById(epic.id);
+      if (!e) return;
+      Object.assign(e, normalizeEpic({ ...e, queue: { week, span } }));
+      applied++;
+    });
+    if (applied) save();
+    return applied;
+  }
+
   /** Экранирование значения для CSV: кавычки, разделитель, переводы строк. */
   const csvCell = v => {
     const str = v === null || v === undefined ? '' : String(v);
@@ -1332,6 +1396,6 @@ const Store = (() => {
     // эпики
     EPIC_STATUSES, EPIC_STATUS_IDS, epicStatusById, isEpicClosed, matchEpicStatus, parseDateOnly,
     EPIC_CSV_HINTS, EPIC_CSV_FIELDS, EPIC_CSV_LABELS, epicItemsFromCsv, epicsToCsv, exportEpicsCsv,
-    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics, moveEpic,
+    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics, moveEpic, setEpicQueue, applyQueuePlan, applyPlanToQueue, mondayOf, QUEUE_MAX_SPAN,
   };
 })();

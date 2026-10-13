@@ -42,6 +42,10 @@
         <svg class="ico" viewBox="0 0 24 24"><path d="M4 6h9M8 12h11M6 18h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
         Эпики
       </button>
+      <button class="nav__item" data-view="queue">
+        <svg class="ico" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="13.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="3.5" y="13.5" width="17" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+        Очередь
+      </button>
     </nav>
 
     <div class="sidebar__section">
@@ -172,6 +176,11 @@
     <!-- ───────── Эпики ───────── -->
     <section class="view" id="view-epics" hidden>
       <div id="epicsBody"><!-- JS --></div>
+    </section>
+
+    <!-- ───────── Очередь эпиков ───────── -->
+    <section class="view" id="view-queue" hidden>
+      <div id="queueBody"><!-- JS --></div>
     </section>
   </main>
 </div>
@@ -651,6 +660,7 @@ DEV-125 &quot;Починить экспорт CSV&quot; Баг Ревью 2"></t
 <script src="js/summary.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/roadmap.js"></script>
+<script src="js/queue.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

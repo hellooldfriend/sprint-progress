@@ -7,7 +7,7 @@ const UI = (() => {
 
   /** Локальное состояние интерфейса (не сохраняется). */
   const view = {
-    tab: 'dashboard',      // 'dashboard' | 'history' | 'epics'
+    tab: 'dashboard',      // 'dashboard' | 'history' | 'epics' | 'queue'
     query: '',             // поиск по задачам
     kind: 'all',           // 'all' | 'planned' | 'unplanned'
     assignee: null,        // null | имя в нижнем регистре | '__none__' — задачи без исполнителя
@@ -92,9 +92,17 @@ const UI = (() => {
     const metaEl = $('#sprintMeta');
 
     // Эпики живут вне спринтов: у вкладки свои заголовок и действия
-    const epicsTab = view.tab === 'epics';
+    const epicsTab = view.tab === 'epics' || view.tab === 'queue';
     $('#epicActions').hidden = !epicsTab;
     $('#sprintActions').hidden = epicsTab;
+    if (view.tab === 'queue') {
+      const placed = Store.epics().filter(e => e.queue && !Store.isEpicClosed(e));
+      const now = Epics.queueStats(placed, [Store.mondayOf(Store.today())])[0];
+      nameEl.textContent = 'Очередь эпиков';
+      metaEl.innerHTML = `<span>Сейчас в работе ${now.count} ${Metrics.plural(now.count, 'эпик', 'эпика', 'эпиков')}</span>
+        <span>· в очереди ${placed.length}</span>`;
+      return;
+    }
     if (epicsTab) {
       const all = Store.epics();
       const open = all.filter(e => !Store.isEpicClosed(e));
@@ -759,6 +767,7 @@ const UI = (() => {
     $('#view-dashboard').hidden = tab !== 'dashboard';
     $('#view-history').hidden = tab !== 'history';
     $('#view-epics').hidden = tab !== 'epics';
+    $('#view-queue').hidden = tab !== 'queue';
     render();
   }
 
@@ -767,6 +776,7 @@ const UI = (() => {
     renderTopbar();
     if (view.tab === 'dashboard') renderDashboard();
     else if (view.tab === 'epics') Roadmap.render();
+    else if (view.tab === 'queue') Queue.render();
     else renderHistory();
   }
 
