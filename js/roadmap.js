@@ -6,7 +6,6 @@
    Жесты:
    - тянуть полосу — сдвиг окна целиком, длительность сохраняется;
    - тянуть край — сдвиг Planned Start или Planned End;
-   - тянуть в дорожку другого человека (группировка по исполнителю) — переназначить;
    - клик или протяжка по шкале у эпика без дат — поставить в план окном по HLE;
    - клик по полосе без движения — открыть эпик;
    - тянуть за ручку ⋮⋮ слева от эпика — поменять приоритет (и на Ганте, и в бэклоге).
@@ -48,13 +47,14 @@ const Roadmap = (() => {
       if (!settings().roadmapShowClosed && Store.isEpicClosed(e)) return false;
       if (view.stage && Epics.stage(e) !== view.stage) return false;
       if (!q) return true;
-      return [e.key, e.title, e.assignee, e.author, Store.epicStatusById(e.status).label]
+      return [e.key, e.title, Store.epicStatusById(e.status).label]
         .some(f => String(f || '').toLowerCase().includes(q));
     });
   }
 
   const x = iso => Store.diffDays(range.start, iso) * dayW;
-  const pctLabel = v => `${Math.round(v * 100)}%`;
+  /** «≈1,2 чел» — сколько людей нужно, чтобы уложить HLE в окно; так же считает «Очередь». */
+  const peopleLabel = v => `≈${(v >= 10 ? Math.round(v) : Math.round(v * 10) / 10).toString().replace('.', ',')} чел`;
 
   /* ═════════════ Рендер ═════════════ */
 
@@ -104,10 +104,7 @@ const Roadmap = (() => {
     dayW = zoom.day;
     LEFT_W = leftWidth();
     range = Epics.timelineRange(all, today);     // шкала по всем эпикам: фильтр не должен её дёргать
-    const weeks = Epics.weeksOf(range);
-    const load = Epics.weeklyLoad(all, weeks);
     const mode = settings().roadmapGroup;
-    const grouped = mode === 'assignee';
     const groups = Epics.groupRows(list, mode);
     const width = range.days * dayW;
 
@@ -119,12 +116,12 @@ const Roadmap = (() => {
       ${readinessHTML(all)}
       ${overviewHTML(Epics.overview(all, today))}
       ${toolbarHTML(list.length, all.length)}
-      <div class="gantt ${grouped ? 'is-grouped' : ''}" id="gantt" ${grouped ? 'data-sort-cross' : ''}
+      <div class="gantt" id="gantt"
            style="--day:${dayW}px;--left:${LEFT_W}px;--track:${width}px">
         ${headHTML(zoom)}
         <div class="gantt__body">
           ${list.length
-            ? groups.map(g => groupHTML(g, mode, load, weeks, today)).join('')
+            ? groups.map(g => groupHTML(g, mode, today)).join('')
             : '<div class="gantt__nothing">Ничего не нашлось — поменяйте поиск или покажите закрытые эпики</div>'}
           ${today >= range.start && today <= range.end
             ? `<div class="gantt__today" style="left:${LEFT_W + x(today) + dayW / 2}px"><span>Сегодня</span></div>` : ''}
@@ -132,10 +129,9 @@ const Roadmap = (() => {
       </div>
       <p class="hint">
         Тяните полосу, чтобы сдвинуть эпик, за край — чтобы поменять Planned Start или End, за ⋮⋮ — чтобы поменять приоритет.
-        ${grouped ? 'Перетащите в строку другого человека — эпик перейдёт к нему.' : ''}
         Пунктирные полосы — эпики, не прошедшие груминг: их даты пока ориентировочные.
         У эпика без дат кликните по шкале — окно поставится по HLE.
-        Загрузка считается так: эпик делает один человек, HLE в человеко-днях делится на рабочие дни окна.
+        «≈ чел» на полосе — сколько людей нужно, чтобы уложить HLE в окно: человеко-дни делятся на рабочие дни.
       </p>`;
 
     const gantt = $('#gantt');
@@ -175,13 +171,6 @@ const Roadmap = (() => {
         foot: o.noHle
           ? `Без оценки ${o.noHle} ${Metrics.plural(o.noHle, 'эпик', 'эпика', 'эпиков')} — в загрузке они не видны`
           : 'У всех открытых эпиков есть оценка',
-      })}
-      ${card({
-        dot: o.overloaded.length ? 'dot--red' : 'dot--green', title: 'Перегруз людей',
-        value: o.overloaded.length, unit: `из ${o.people} ${Metrics.plural(o.people, 'человека', 'человек', 'человек')}`,
-        foot: o.overloaded.length
-          ? o.overloaded.slice(0, 3).map(p => `${esc(p.name)} ${pctLabel(p.peak)}`).join(' · ') + ' — пик с этой недели'
-          : 'С текущей недели никто не загружен больше чем на 100%',
       })}
       ${card({
         dot: risks ? 'dot--amber' : 'dot--muted', title: 'Риски по срокам', value: risks,
@@ -257,7 +246,6 @@ const Roadmap = (() => {
             `<button data-zoom="${id}" class="${s.roadmapZoom === id ? 'is-active' : ''}">${z.label}</button>`).join('')}
         </div>
         <div class="segmented" role="group" aria-label="Группировка">
-          <button data-group="assignee" class="${s.roadmapGroup === 'assignee' ? 'is-active' : ''}">По людям</button>
           <button data-group="readiness" class="${s.roadmapGroup === 'readiness' ? 'is-active' : ''}">По готовности</button>
           <button data-group="none" class="${s.roadmapGroup === 'none' ? 'is-active' : ''}">Списком</button>
         </div>` : ''}
@@ -308,7 +296,6 @@ const Roadmap = (() => {
       <div class="gantt__head">
         <div class="gantt__corner">
           <span>Эпик</span>
-          <span>${settings().roadmapGroup === 'assignee' ? 'загрузка по неделям →' : ''}</span>
         </div>
         <div class="gantt__scale">
           <div class="gantt__months">${months.join('')}</div>
@@ -317,51 +304,21 @@ const Roadmap = (() => {
       </div>`;
   }
 
-  /* ── Группа: строка человека с загрузкой + его эпики ── */
-  function groupHTML(g, mode, load, weeks, today) {
+  /* ── Группа по готовности: заголовок + её эпики ── */
+  function groupHTML(g, mode, today) {
     const scope = g.key || 'all';
     const rows = g.epics.map(e => rowHTML(e, scope, today)).join('');
-    if (mode === 'none') return rows;
+    if (mode !== 'readiness') return rows;
 
-    if (mode === 'readiness') {
-      const hle = g.epics.reduce((acc, e) => acc + (e.hle || 0), 0);
-      const noHle = g.epics.filter(e => e.hle === null).length;
-      return `
-        <div class="gantt__row gantt__row--group gantt__row--${g.key}" data-sort-head="${scope}">
-          <div class="gantt__label">
-            <span class="gl__person">${esc(g.name)}</span>
-            <span class="gl__sum">${g.epics.length} ${Metrics.plural(g.epics.length, 'эпик', 'эпика', 'эпиков')}${hle ? ` · ${Metrics.fmt(hle)} п/д` : ''}${noHle && g.key !== 'closed' ? ` · без HLE ${noHle}` : ''}</span>
-          </div>
-          <div class="gantt__track gantt__track--load"><span class="gantt__note">${esc(g.hint)}</span></div>
-        </div>
-        ${rows}`;
-    }
-
-    const person = g.name ? load.get(Epics.personKey(g.name)) : null;
-    const open = g.epics.filter(e => !Store.isEpicClosed(e));
-    const hle = open.reduce((acc, e) => acc + (e.hle || 0), 0);
-    const peak = person ? Epics.upcomingPeak(person, today) : 0;
-    const laneKey = g.key;
-
-    const cells = person ? person.weeks.map(w => {
-      if (!w.load) return '';
-      const cls = w.load > 1 ? 'is-over' : w.load > Epics.LOAD_WARN ? 'is-warn' : 'is-ok';
-      const names = w.epics.map(id => (Store.epicById(id) || {}).key).filter(Boolean).join(', ');
-      return `<span class="load ${cls}" style="left:${x(w.week)}px;width:${5 * dayW}px"
-                    title="Неделя с ${Store.formatDate(w.week)}: ${pctLabel(w.load)} · ${esc(names)}">${5 * dayW >= 30 ? pctLabel(w.load) : ''}</span>`;
-    }).join('') : '';
-
+    const hle = g.epics.reduce((acc, e) => acc + (e.hle || 0), 0);
+    const noHle = g.epics.filter(e => e.hle === null).length;
     return `
-      <div class="gantt__row gantt__row--group" data-lane="${esc(laneKey)}" data-lane-name="${esc(g.name || '')}"
-           data-sort-head="${esc(scope)}">
+      <div class="gantt__row gantt__row--group gantt__row--${g.key}" data-sort-head="${scope}">
         <div class="gantt__label">
-          <span class="gl__person">${esc(g.name || 'Без исполнителя')}</span>
-          <span class="gl__sum">
-            ${g.epics.length} ${Metrics.plural(g.epics.length, 'эпик', 'эпика', 'эпиков')}${hle ? ` · ${Metrics.fmt(hle)} п/д` : ''}
-            ${peak > 1 ? `<span class="tag tag--over" title="Пиковая загрузка с текущей недели">пик ${pctLabel(peak)}</span>` : ''}
-          </span>
+          <span class="gl__person">${esc(g.name)}</span>
+          <span class="gl__sum">${g.epics.length} ${Metrics.plural(g.epics.length, 'эпик', 'эпика', 'эпиков')}${hle ? ` · ${Metrics.fmt(hle)} п/д` : ''}${noHle && g.key !== 'closed' ? ` · без HLE ${noHle}` : ''}</span>
         </div>
-        <div class="gantt__track gantt__track--load">${g.name ? cells : '<span class="gantt__note">Назначьте исполнителя — иначе загрузку не посчитать</span>'}</div>
+        <div class="gantt__track"><span class="gantt__note">${esc(g.hint)}</span></div>
       </div>
       ${rows}`;
   }
@@ -386,7 +343,7 @@ const Roadmap = (() => {
 
     return `
       <div class="gantt__row ${Store.isEpicClosed(e) ? 'is-closed' : ''} ${stg.groomed === false ? 'is-ungroomed' : ''}"
-           data-epic="${e.id}" data-lane="${esc(scope)}" data-sort-id="${e.id}" data-sort-scope="${esc(scope)}">
+           data-epic="${e.id}" data-sort-id="${e.id}" data-sort-scope="${esc(scope)}">
         <div class="gantt__label" data-epic-open="${e.id}" title="${esc(e.title)}\n${esc(stg.label)} — ${esc(stg.hint)}"
              style="--stage:${stg.color}">
           ${GRIP}
@@ -411,13 +368,13 @@ const Roadmap = (() => {
     const left = x(e.plannedStart);
     const width = (Store.diffDays(e.plannedStart, e.plannedEnd) + 1) * dayW;
     const days = Epics.windowDays(e);
-    const load = Epics.intensity(e);
-    const label = [e.key, e.hle !== null ? `${Metrics.fmt(e.hle)} п/д` : '', load ? pctLabel(load) : '']
+    const people = Epics.intensity(e);
+    const label = [e.key, e.hle !== null ? `${Metrics.fmt(e.hle)} п/д` : '', people ? peopleLabel(people) : '']
       .filter(Boolean).join(' · ');
     const title = [
       `${e.key ? e.key + ' — ' : ''}${e.title}`,
       `${Store.formatRange(e.plannedStart, e.plannedEnd)} · ${days} ${Metrics.plural(days, 'рабочий день', 'рабочих дня', 'рабочих дней')}`,
-      e.hle !== null ? `HLE ${Metrics.fmt(e.hle)} п/д → загрузка исполнителя ${pctLabel(load)}` : 'HLE не указан',
+      e.hle !== null ? `HLE ${Metrics.fmt(e.hle)} п/д → нужно ${peopleLabel(people)}` : 'HLE не указан',
       ...problems.filter(p => p.id === 'squeezed' || p.id === 'overdue').map(p => '⚠ ' + p.text),
     ].join('\n');
     const cls = [
@@ -555,7 +512,6 @@ const Roadmap = (() => {
       id: item.dataset.sortId,
       scope: item.dataset.sortScope,
       item,
-      cross: !!item.closest('[data-sort-cross]'),
       scroller: item.closest('.gantt'),
       target: null,
     };
@@ -581,7 +537,7 @@ const Roadmap = (() => {
       place = 'before';
     }
 
-    const allowed = target && (target.dataset.sortScope === sort.scope || sort.cross);
+    const allowed = target && target.dataset.sortScope === sort.scope;
     document.body.classList.toggle('is-sort-blocked', !!target && !allowed);
     if (!allowed || target === sort.item) {
       sort.target = null;
@@ -600,9 +556,7 @@ const Roadmap = (() => {
     s.item.classList.remove('is-sorting');
     document.body.classList.remove('is-sorting', 'is-sort-blocked');
     if (!commit || !s.target) return;
-    // В Ганте по людям перенос в чужую группу — это ещё и смена исполнителя
-    const reassign = s.target.scope !== s.scope ? laneName(s.target.scope) : undefined;
-    handlers.onReorder(s.id, s.target.id, s.target.place, reassign);
+    handlers.onReorder(s.id, s.target.id, s.target.place);
   }
 
   /* ═════════════ Перетаскивание ═════════════ */
@@ -670,8 +624,6 @@ const Roadmap = (() => {
       next: { start, end },
       originX: e.clientX + gantt.scrollLeft,
       originY: e.clientY,
-      lane: row.dataset.lane,
-      targetLane: row.dataset.lane,
       moved: created,
     };
     onPointerMove(e);
@@ -700,30 +652,12 @@ const Roadmap = (() => {
     drag.bar.style.left = `${x(start)}px`;
     drag.bar.style.width = `${(Store.diffDays(start, end) + 1) * dayW}px`;
 
-    // Дорожка под курсором — кому достанется эпик при отпускании
-    if (gantt.classList.contains('is-grouped') && mode === 'move') {
-      const under = document.elementFromPoint(e.clientX, e.clientY);
-      const laneRow = under && under.closest('#gantt [data-lane]');
-      if (laneRow) drag.targetLane = laneRow.dataset.lane;
-      gantt.querySelectorAll('.is-lane-target').forEach(r => r.classList.remove('is-lane-target'));
-      if (drag.targetLane !== drag.lane) {
-        gantt.querySelectorAll(`[data-lane="${CSS.escape(drag.targetLane)}"]`)
-          .forEach(r => r.classList.add('is-lane-target'));
-      }
-    }
-
     if (!drag.moved) return;
     const days = Store.workingDays(start, end);
     const hle = drag.epic.hle;
-    const owner = drag.targetLane !== drag.lane ? ` → ${laneName(drag.targetLane) || 'без исполнителя'}` : '';
     tip(`${Store.formatRange(start, end)} · ${days} р/д` +
-        (hle ? ` · HLE ${Metrics.fmt(hle)} → ${pctLabel(days ? hle / days : 0)}` : '') + owner,
+        (hle && days ? ` · HLE ${Metrics.fmt(hle)} → ${peopleLabel(hle / days)}` : ''),
         e.clientX, e.clientY);
-  }
-
-  function laneName(lane) {
-    const head = document.querySelector(`#gantt .gantt__row--group[data-lane="${CSS.escape(lane)}"]`);
-    return head ? head.dataset.laneName : '';
   }
 
   function finish(commit) {
@@ -732,7 +666,6 @@ const Roadmap = (() => {
     drag = null;
     tip('');
     d.bar.classList.remove('is-dragging');
-    d.gantt.querySelectorAll('.is-lane-target').forEach(r => r.classList.remove('is-lane-target'));
 
     if (!commit) { render(); return; }
     if (!d.moved) { handlers.onOpen(d.epic); return; }
@@ -742,7 +675,6 @@ const Roadmap = (() => {
       patch.plannedStart = d.next.start;
       patch.plannedEnd = d.next.end;
     }
-    if (d.targetLane !== d.lane) patch.assignee = laneName(d.targetLane);
     if (!Object.keys(patch).length) { render(); return; }
     handlers.onCommit(d.epic, patch, { created: d.created });
   }

@@ -842,20 +842,12 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.6); curs
 }
 .gantt__row:hover .gantt__track { background-color: rgba(255,255,255,.012); }
 
-/* Строка человека */
+/* Заголовок группы «прошли / не прошли груминг» */
 .gantt__row--group { height: 40px; background: var(--surface-2); }
 .gantt__row--group .gantt__label { flex-direction: row; align-items: center; justify-content: space-between; background: var(--surface-2); cursor: default; }
 .gantt__row--group:hover .gantt__label { background: var(--surface-2); }
 .gl__person { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gl__sum { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--faint); white-space: nowrap; }
-.load {
-  position: absolute; top: 9px; bottom: 9px; border-radius: 5px;
-  display: grid; place-items: center; font-size: 10.5px; font-family: var(--mono); font-weight: 600;
-  overflow: hidden; cursor: help;
-}
-.load.is-ok   { background: var(--green-soft); color: #4ade80; }
-.load.is-warn { background: var(--amber-soft); color: #fbbf24; }
-.load.is-over { background: rgba(239, 68, 68, .28); color: #fecaca; box-shadow: inset 0 0 0 1px rgba(239,68,68,.5); }
 .gantt__note, .gantt__place {
   position: absolute; top: 50%; transform: translateY(-50%);
   font-size: 11.5px; color: var(--faint); white-space: nowrap; pointer-events: none;
@@ -864,10 +856,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.6); curs
 .gantt__place { padding: 4px 10px; border: 1px dashed var(--border-strong); border-radius: 99px; }
 .gantt__row:not(.gantt__row--group) .gantt__track:has(.gantt__place) { cursor: crosshair; }
 .gantt__row:hover .gantt__place { color: var(--muted); border-color: var(--accent); }
-
-/* Цель переноса в другую дорожку */
-.gantt__row.is-lane-target, .gantt__row.is-lane-target .gantt__label { background: rgba(139, 92, 246, .08); }
-.gantt__row--group.is-lane-target .gl__person { color: #c4b5fd; }
 
 /* Полоса эпика: цвет — статус, задаётся через --c */
 .bar {

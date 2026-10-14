@@ -405,7 +405,7 @@ const Store = (() => {
         metricMode: 'points', chartMode: 'burndown',
         statusMap: {}, csvMapping: null, sidebarCollapsed: false,
         taskBaseUrl: '', summaryWithTasks: false, summaryWithPeople: false, summaryWithPace: false,
-        roadmapZoom: 'month', roadmapGroup: 'assignee', roadmapShowClosed: false, epicsView: 'gantt',
+        roadmapZoom: 'month', roadmapGroup: 'readiness', roadmapShowClosed: false, epicsView: 'gantt',
         queueTeamSize: null,
         epicCsvMapping: null, epicStatusMap: {},
       },
@@ -551,7 +551,8 @@ const Store = (() => {
       summaryWithPeople: !!rawSettings.summaryWithPeople,
       summaryWithPace: !!rawSettings.summaryWithPace,
       roadmapZoom: ['week', 'month', 'quarter'].includes(rawSettings.roadmapZoom) ? rawSettings.roadmapZoom : 'month',
-      roadmapGroup: ['none', 'readiness'].includes(rawSettings.roadmapGroup) ? rawSettings.roadmapGroup : 'assignee',
+      // Группировки по людям больше нет: эпики ведёт один ответственный — старое значение становится «по готовности»
+      roadmapGroup: rawSettings.roadmapGroup === 'none' ? 'none' : 'readiness',
       epicsView: rawSettings.epicsView === 'backlog' ? 'backlog' : 'gantt',
       roadmapShowClosed: !!rawSettings.roadmapShowClosed,
       queueTeamSize: normalizeDays(rawSettings.queueTeamSize),

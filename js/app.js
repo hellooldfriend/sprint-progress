@@ -891,7 +891,7 @@
     openModal('epicModal');
   }
 
-  /** Живая подсказка: сколько рабочих дней в окне и во что это выливается для исполнителя. */
+  /** Живая подсказка: сколько рабочих дней в окне и сколько людей нужно, чтобы в него уложиться. */
   function updateEpicWindowHint() {
     const form = $('#epicForm');
     const start = form.plannedStart.value, end = form.plannedEnd.value;
@@ -912,9 +912,10 @@
     }
     const days = Store.workingDays(start, end);
     const base = `Окно: ${days} ${Metrics.plural(days, 'рабочий день', 'рабочих дня', 'рабочих дней')}`;
-    if (!hle) { hint.textContent = `${base}. Укажите HLE — увидите загрузку исполнителя.`; return; }
+    if (!hle) { hint.textContent = `${base}. Укажите HLE — увидите, сколько людей нужно.`; return; }
     const load = days ? hle / days : Infinity;
-    hint.textContent = `${base} · HLE ${Metrics.fmt(hle)} п/д → загрузка исполнителя ${Number.isFinite(load) ? Math.round(load * 100) + '%' : '∞'}` +
+    const people = Number.isFinite(load) ? (Math.round(load * 10) / 10).toString().replace('.', ',') : '∞';
+    hint.textContent = `${base} · HLE ${Metrics.fmt(hle)} п/д → нужно ≈${people} чел` +
       (load > 1 ? ' — одному человеку не успеть' : '');
     if (load > 1) hint.classList.add('txt-amber');
   }
@@ -1009,24 +1010,16 @@
     if (!updated) return;
     const name = updated.key || `«${updated.title}»`;
     const dates = Store.formatRange(updated.plannedStart, updated.plannedEnd);
-    if (patch.assignee !== undefined) {
-      UI.toast(`${name} → ${updated.assignee || 'без исполнителя'}${patch.plannedStart ? ` · ${dates}` : ''}`, 'ok');
-    } else {
-      UI.toast(created ? `${name} в плане: ${dates}` : `${name}: ${dates}`, 'ok');
-    }
+    UI.toast(created ? `${name} в плане: ${dates}` : `${name}: ${dates}`, 'ok');
   }
 
-  /** Итог сортировки за ручку: новый приоритет, а в Ганте по людям — ещё и новый исполнитель. */
-  function reorderEpic(id, targetId, place, reassign) {
+  /** Итог сортировки за ручку: новый приоритет. */
+  function reorderEpic(id, targetId, place) {
     const moved = Store.moveEpic(id, targetId, place);
-    if (reassign !== undefined) Store.updateEpic(id, { assignee: reassign });
     UI.render();
     const epic = Store.epicById(id);
-    if (!epic || (!moved && reassign === undefined)) return;
-    const name = epic.key || `«${epic.title}»`;
-    UI.toast(reassign !== undefined
-      ? `${name} → ${reassign || 'без исполнителя'} · приоритет ${epic.rank}`
-      : `${name}: приоритет ${epic.rank}`, 'ok');
+    if (!epic || !moved) return;
+    UI.toast(`${epic.key || `«${epic.title}»`}: приоритет ${epic.rank}`, 'ok');
   }
 
   /** Тост, если правка перевела эпик через черту груминга — это главное событие на груминге. */
@@ -1060,8 +1053,9 @@
   /* ── Очередь эпиков ── */
 
   /** Итог перетаскивания на доске очереди: неделя, длина, приоритет — или обратно в пул. */
-  function placeInQueue(epic, { week, span, before }) {
+  function placeInQueue(epic, { week, span, before, ref, place }) {
     if (before) Store.moveEpic(epic.id, before, 'before');
+    if (ref) Store.moveEpic(epic.id, ref, place || 'before');     // вернули в пул на конкретное место
     const wasQueued = !!epic.queue;
     const oldWeek = wasQueued ? epic.queue.week : null;
     const updated = Store.setEpicQueue(epic.id, week, span || (wasQueued ? null : Epics.defaultSpan(epic.hle)));
@@ -1078,7 +1072,7 @@
     UI.toast(`${name}: с ${Store.formatDate(updated.queue.week)} · ${weeksText}`, 'ok');
   }
 
-  Queue.init({ onOpen: openEpicModal, onPlace: placeInQueue });
+  Queue.init({ onOpen: openEpicModal, onPlace: placeInQueue, onReorder: reorderEpic });
 
   /* ── Меню эпика по правой кнопке ── */
 

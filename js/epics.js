@@ -1,20 +1,16 @@
 /* ============================================================
    epics.js — расчёты для планирования эпиков (чистые функции).
-   Окно эпика, длительность по HLE, загрузка людей, предупреждения.
+   Готовность, окно эпика, длительность по HLE, очередь по неделям, предупреждения.
 
-   Модель простая и честная: эпик делает один исполнитель, HLE — человеко-дни.
-   Тогда интенсивность эпика = HLE / рабочих дней окна (доля ставки),
-   а загрузка человека в день = сумма интенсивностей его эпиков в этот день.
-   Больше 100% — человек физически не успевает всё, что ему запланировали.
+   HLE — человеко-дни. Сколько людей нужно эпику = HLE / рабочих дней окна:
+   10 п/д на две недели — один человек, на одну — двое. Исполнитель в расчётах
+   не участвует: эпики ведёт один ответственный, а делает их команда.
    ============================================================ */
 const Epics = (() => {
   'use strict';
 
   /** Длительность по умолчанию, когда эпик ставят в план без оценки: две рабочие недели. */
   const DEFAULT_WINDOW_DAYS = 10;
-  /** Порог «почти на пределе» — выше него загрузка подсвечивается жёлтым. */
-  const LOAD_WARN = 0.8;
-  const NONE_KEY = '__none__';
 
   const isScheduled = e => !!(e.plannedStart && e.plannedEnd);
 
@@ -101,14 +97,11 @@ const Epics = (() => {
   /** Рабочих дней в окне эпика. */
   const windowDays = e => (isScheduled(e) ? Store.workingDays(e.plannedStart, e.plannedEnd) : 0);
 
-  /** Доля ставки, которую эпик съедает у исполнителя: 1 — весь человек целиком. */
+  /** Сколько людей нужно, чтобы уложить HLE в окно: 1 — один человек целиком. */
   function intensity(e) {
     const days = windowDays(e);
     return e.hle && days ? e.hle / days : 0;
   }
-
-  /** Имя → ключ человека: «Марат» и «марат» — один исполнитель (как в метриках спринта). */
-  const personKey = name => String(name || '').trim().toLowerCase() || NONE_KEY;
 
   /** Понедельник недели, в которую попадает дата. */
   function weekStart(iso) {
@@ -141,47 +134,6 @@ const Epics = (() => {
   }
 
   /**
-   * Загрузка людей по неделям. Закрытые эпики (Готово, Rejected) людей уже не занимают.
-   * @returns {Map<string, {name, weeks: Array<{week, load, epics:string[]}>, peak:number}>}
-   */
-  function weeklyLoad(list, weeks) {
-    const people = new Map();
-    list.forEach(e => {
-      if (!isScheduled(e) || Store.isEpicClosed(e) || !e.assignee) return;
-      const key = personKey(e.assignee);
-      if (!people.has(key)) {
-        people.set(key, { name: e.assignee.trim(), weeks: weeks.map(week => ({ week, load: 0, epics: [] })), peak: 0 });
-      }
-    });
-
-    people.forEach((person, key) => {
-      const mine = list.filter(e => isScheduled(e) && !Store.isEpicClosed(e) && personKey(e.assignee) === key);
-      person.weeks.forEach(cell => {
-        let total = 0, workdays = 0;
-        for (let i = 0; i < 5; i++) {                 // пн–пт
-          const day = Store.addDays(cell.week, i);
-          workdays++;
-          mine.forEach(e => {
-            if (day >= e.plannedStart && day <= e.plannedEnd) {
-              total += intensity(e);
-              if (!cell.epics.includes(e.id)) cell.epics.push(e.id);
-            }
-          });
-        }
-        cell.load = total / workdays;
-        person.peak = Math.max(person.peak, cell.load);
-      });
-    });
-    return people;
-  }
-
-  /** Пиковая загрузка человека с текущей недели и дальше — прошлые перегрузы уже не исправить. */
-  function upcomingPeak(person, today) {
-    const from = weekStart(today);
-    return person.weeks.filter(w => w.week >= from).reduce((max, w) => Math.max(max, w.load), 0);
-  }
-
-  /**
    * Что не так с эпиком — для подсветки на Ганте и счётчиков над ним.
    * @returns {Array<{id:string, text:string, level:'warn'|'err'}>}
    */
@@ -190,7 +142,6 @@ const Epics = (() => {
     const out = [];
     if (!isScheduled(e)) out.push({ id: 'unscheduled', text: 'Нет Planned Start / End', level: 'warn' });
     if (e.hle === null) out.push({ id: 'no-hle', text: 'Нет оценки HLE', level: 'warn' });
-    if (!e.assignee) out.push({ id: 'no-assignee', text: 'Не назначен исполнитель', level: 'warn' });
     if (isScheduled(e) && e.hle) {
       const days = windowDays(e);
       if (e.hle > days) {
@@ -211,12 +162,6 @@ const Epics = (() => {
    */
   function overview(list, today) {
     const open = list.filter(e => !Store.isEpicClosed(e));
-    const weeks = weeksOf(timelineRange(list, today));
-    const load = weeklyLoad(list, weeks);
-    const overloaded = [...load.values()]
-      .map(p => ({ name: p.name, peak: upcomingPeak(p, today) }))
-      .filter(p => p.peak > 1)
-      .sort((a, b) => b.peak - a.peak);
 
     const has = id => open.filter(e => issues(e, today).some(i => i.id === id));
     return {
@@ -226,17 +171,14 @@ const Epics = (() => {
       unscheduled: has('unscheduled').length,
       hleTotal: open.reduce((acc, e) => acc + (e.hle || 0), 0),
       noHle: has('no-hle').length,
-      noAssignee: has('no-assignee').length,
       squeezed: has('squeezed').length,
       overdue: has('overdue').length,
-      overloaded,
-      people: load.size,
     };
   }
 
   /**
-   * Группы строк Ганта. По исполнителю — люди по алфавиту, «Без исполнителя» в конце;
-   * внутри группы — по дате старта, незапланированные внизу.
+   * Группы строк Ганта: по готовности («прошли / не прошли груминг») или одним списком.
+   * Внутри — по ручному приоритету.
    */
   function groupRows(list, mode) {
     // Порядок — ручной приоритет; без него (данные тестов, сырой импорт) — по дате старта
@@ -252,17 +194,7 @@ const Epics = (() => {
         .map(g => ({ ...g, epics: list.filter(e => readinessKey(e) === g.key).sort(byStart) }))
         .filter(g => g.epics.length);
     }
-    if (mode !== 'assignee') return [{ key: null, name: null, epics: [...list].sort(byStart) }];
-
-    const groups = new Map();
-    list.forEach(e => {
-      const key = personKey(e.assignee);
-      if (!groups.has(key)) groups.set(key, { key, name: key === NONE_KEY ? null : e.assignee.trim(), epics: [] });
-      groups.get(key).epics.push(e);
-    });
-    return [...groups.values()]
-      .sort((a, b) => (a.key === NONE_KEY) - (b.key === NONE_KEY) || a.name.localeCompare(b.name, 'ru'))
-      .map(g => ({ ...g, epics: g.epics.sort(byStart) }));
+    return [{ key: null, name: null, epics: [...list].sort(byStart) }];
   }
 
   /* ───────────── Очередь: эпики по неделям ───────────── */
@@ -353,9 +285,9 @@ const Epics = (() => {
 
   return {
     defaultSpan, queueLastWeek, inQueueWeek, queueWeeks, queueStats, queueToPlan, planToQueue,
-    DEFAULT_WINDOW_DAYS, LOAD_WARN, NONE_KEY,
+    DEFAULT_WINDOW_DAYS,
     STAGES, stageById, stage, isGroomed, READINESS_GROUPS, readinessKey, readiness,
-    isScheduled, nextWorkingDay, windowFromHle, windowDays, intensity, personKey, weekStart,
-    timelineRange, weeksOf, weeklyLoad, upcomingPeak, issues, overview, groupRows,
+    isScheduled, nextWorkingDay, windowFromHle, windowDays, intensity, weekStart,
+    timelineRange, weeksOf, issues, overview, groupRows,
   };
 })();

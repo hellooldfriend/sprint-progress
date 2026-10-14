@@ -11,6 +11,7 @@
    - бросить на карточку, стартующую в ту же неделю, — встать перед ней по приоритету;
    - тянуть за правый край — сколько недель занимает эпик;
    - бросить в пул слева — убрать из очереди;
+   - тянуть внутри пула — поднять важное выше (в пределах своей группы готовности);
    - клик без движения — открыть эпик.
    ============================================================ */
 const Queue = (() => {
@@ -24,7 +25,7 @@ const Queue = (() => {
 
   const view = { query: '', scrollToNow: true };
   let weeks = [];
-  let handlers = { onOpen() {}, onPlace() {} };
+  let handlers = { onOpen() {}, onPlace() {}, onReorder() {} };
 
   const settings = () => Store.get().settings;
   const fmtPeople = v => (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10).toString().replace('.', ',');
@@ -211,12 +212,12 @@ const Queue = (() => {
         ${groups.length
           ? groups.map(g => `
               <div class="qp-group qp-group--${g.key}">${g.name} · ${g.list.length}</div>
-              ${g.list.map(e => cardHTML(e, null)).join('')}`).join('')
+              ${g.list.map(e => cardHTML(e, null, g.key)).join('')}`).join('')
           : '<div class="queue__pool-empty">Все эпики разложены по неделям. Перетащите карточку сюда, чтобы убрать из очереди.</div>'}
       </aside>`;
   }
 
-  function cardHTML(e, col) {
+  function cardHTML(e, col, poolGroup) {
     const st = Store.epicStatusById(e.status);
     const stg = Epics.stageById(Epics.stage(e));
     const span = e.queue ? e.queue.span : Epics.defaultSpan(e.hle);
@@ -233,7 +234,7 @@ const Queue = (() => {
     const place = col === null ? '' : `grid-column:${col + 1} / span ${span};`;
 
     return `
-      <article class="qcard ${cls}" data-qcard="${e.id}" data-span="${span}"
+      <article class="qcard ${cls}" data-qcard="${e.id}" data-span="${span}" ${poolGroup ? `data-pool-group="${poolGroup}"` : ''}
                style="${place}--stage:${stg.color};--c:${st.color}"
                title="${esc(e.title)}\n${esc(stg.label)} — ${esc(stg.hint)}">
         <div class="qcard__top">
@@ -256,6 +257,36 @@ const Queue = (() => {
   /* ═════════════ Перетаскивание ═════════════ */
 
   let drag = null;
+
+  /** Линия в пуле: куда встанет карточка при сортировке. */
+  function sortLine(rect) {
+    let el = $('#queueSortLine');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'queueSortLine';
+      el.className = 'sort-line';
+      document.body.appendChild(el);
+    }
+    el.hidden = !rect;
+    if (!rect) return;
+    el.style.left = `${rect.left}px`;
+    el.style.width = `${rect.width}px`;
+    el.style.top = `${rect.y - 1}px`;
+  }
+
+  /**
+   * Место в пуле под курсором: перед или после соседней карточки той же группы готовности.
+   * В чужую группу не ставим — карточка всё равно вернулась бы в свою, и порядок выглядел бы сломанным.
+   */
+  function poolSlot(e) {
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const other = under && under.closest('[data-queue-pool] .qcard');
+    if (!other || other.dataset.qcard === drag.epic.id) return null;
+    if (other.dataset.poolGroup !== Epics.readinessKey(drag.epic)) return null;
+    const rect = other.getBoundingClientRect();
+    const place = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    return { ref: other.dataset.qcard, place, rect };
+  }
 
   function tip(text, x, y) {
     let el = $('#ganttTip');
@@ -352,11 +383,20 @@ const Queue = (() => {
     pool.classList.toggle('is-target', overPool && !!drag.epic.queue);
 
     if (overPool) {
-      drag.target = { pool: true };
+      // У края списка подкручиваем его — длинный пул сортируется без отпускания кнопки
+      if (e.clientY > pRect.bottom - 40) pool.scrollTop += 12;
+      else if (e.clientY < pRect.top + 60) pool.scrollTop -= 12;
+
+      const slot = poolSlot(e);
+      drag.target = { pool: true, ref: slot && slot.ref, place: slot && slot.place };
       drop.hidden = true;
-      tip(drag.epic.queue ? 'Убрать из очереди' : '', e.clientX, e.clientY);
+      sortLine(slot ? { left: slot.rect.left, width: slot.rect.width, y: slot.place === 'before' ? slot.rect.top - 5 : slot.rect.bottom + 5 } : null);
+      const refEpic = slot && Store.epicById(slot.ref);
+      const where = refEpic ? `${slot.place === 'before' ? 'выше' : 'ниже'} ${refEpic.key || `«${refEpic.title}»`}` : '';
+      tip([drag.epic.queue ? 'Убрать из очереди' : '', where].filter(Boolean).join(' · '), e.clientX, e.clientY);
       return;
     }
+    sortLine(null);
     if (!overBoard) {
       drag.target = null;
       drop.hidden = true;
@@ -393,6 +433,7 @@ const Queue = (() => {
     if (pool) pool.classList.remove('is-target');
     const drop = $('#queueDrop');
     if (drop) drop.hidden = true;
+    sortLine(null);
 
     if (!commit) { render(); return; }
     if (!d.moved) { handlers.onOpen(d.epic); return; }
@@ -403,8 +444,10 @@ const Queue = (() => {
       return handlers.onPlace(d.epic, { week: d.epic.queue.week, span: d.target.span });
     }
     if (d.target.pool) {
-      if (!d.epic.queue) return render();
-      return handlers.onPlace(d.epic, { week: null });
+      // Из очереди обратно в пул — сразу на то место в списке, куда бросили
+      if (d.epic.queue) return handlers.onPlace(d.epic, { week: null, ref: d.target.ref, place: d.target.place });
+      if (d.target.ref) return handlers.onReorder(d.epic.id, d.target.ref, d.target.place);
+      return render();
     }
     const same = d.epic.queue && d.epic.queue.week === d.target.week && !d.target.before;
     if (same) return render();

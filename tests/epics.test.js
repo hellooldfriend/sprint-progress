@@ -149,7 +149,7 @@ test('окно по HLE считается в рабочих днях, стар�
   assert.equal(Store.workingDays(fallback.start, fallback.end), Epics.DEFAULT_WINDOW_DAYS, 'без оценки — окно по умолчанию');
 });
 
-test('интенсивность эпика — доля ставки исполнителя', () => {
+test('интенсивность эпика — сколько людей нужно на окно', () => {
   const { Epics } = loadApp();
   const e = { hle: 5, plannedStart: '2026-10-05', plannedEnd: '2026-10-16' };   // 10 рабочих дней
   assert.equal(Epics.windowDays(e), 10);
@@ -157,53 +157,30 @@ test('интенсивность эпика — доля ставки испол
   assert.equal(Epics.intensity({ ...e, hle: null }), 0);
 });
 
-test('загрузка по неделям складывает параллельные эпики одного человека', () => {
-  const { Store, Epics } = loadApp();
-  const mon = nextMonday(Store);
-  const epics = [
-    // неделя 1: 5 п/д на 5 дней = 100%; недели 1–2: 5 п/д на 10 дней = 50%
-    { id: 'a', assignee: 'Анна', status: 'development', hle: 5, plannedStart: mon, plannedEnd: Store.addDays(mon, 4) },
-    { id: 'b', assignee: 'анна ', status: 'backlog', hle: 5, plannedStart: mon, plannedEnd: Store.addDays(mon, 11) },
-    // закрытый эпик людей не занимает
-    { id: 'c', assignee: 'Анна', status: 'done', hle: 50, plannedStart: mon, plannedEnd: Store.addDays(mon, 4) },
-    { id: 'd', assignee: 'Марат', status: 'testing', hle: 2, plannedStart: Store.addDays(mon, 7), plannedEnd: Store.addDays(mon, 11) },
-  ];
-  const weeks = [mon, Store.addDays(mon, 7), Store.addDays(mon, 14)];
-  const load = Epics.weeklyLoad(epics, weeks);
-
-  assert.equal(load.size, 2, 'регистр имени не плодит людей');
-  const anna = load.get('анна');
-  assert.deepEqual(anna.weeks.map(w => Math.round(w.load * 100)), [150, 50, 0]);
-  assert.deepEqual(anna.weeks[0].epics.sort(), ['a', 'b']);
-  assert.equal(Math.round(anna.peak * 100), 150);
-  assert.deepEqual(load.get('марат').weeks.map(w => Math.round(w.load * 100)), [0, 40, 0]);
-  assert.equal(Math.round(Epics.upcomingPeak(anna, Store.addDays(mon, 7)) * 100), 50, 'прошлые недели не в счёт');
-});
-
-test('предупреждения: без дат, без HLE, без исполнителя, не влезает, просрочен', () => {
-  const { Store, Epics } = loadApp();
+test('предупреждения: без дат, без HLE, не влезает, просрочен — исполнитель не важен', () => {
+  const { Epics } = loadApp();
   const today = '2026-10-12';
   const ids = e => Epics.issues(e, today).map(i => i.id).sort();
 
   assert.deepEqual(ids({ status: 'backlog', hle: null, assignee: '', plannedStart: null, plannedEnd: null }),
-    ['no-assignee', 'no-hle', 'unscheduled']);
-  assert.deepEqual(ids({ status: 'development', hle: 12, assignee: 'А', plannedStart: '2026-10-19', plannedEnd: '2026-10-30' }),
+    ['no-hle', 'unscheduled'], 'пустой исполнитель — не проблема');
+  assert.deepEqual(ids({ status: 'development', hle: 12, plannedStart: '2026-10-19', plannedEnd: '2026-10-30' }),
     ['squeezed'], '12 п/д в 10 рабочих днях');
-  assert.deepEqual(ids({ status: 'testing', hle: 3, assignee: 'А', plannedStart: '2026-09-28', plannedEnd: '2026-10-09' }),
+  assert.deepEqual(ids({ status: 'testing', hle: 3, plannedStart: '2026-09-28', plannedEnd: '2026-10-09' }),
     ['overdue']);
-  assert.deepEqual(ids({ status: 'done', hle: null, assignee: '', plannedStart: null, plannedEnd: null }), [],
+  assert.deepEqual(ids({ status: 'done', hle: null, plannedStart: null, plannedEnd: null }), [],
     'у закрытого эпика претензий нет');
 });
 
-test('сводка по плану и группировка по людям', () => {
+test('сводка по плану и группировка Ганта', () => {
   const { Store, Epics } = loadApp();
   const mon = nextMonday(Store);
   const list = [
-    { id: '1', key: 'P-2', assignee: 'Марат', status: 'development', hle: 10, plannedStart: mon, plannedEnd: Store.addDays(mon, 4) },
-    { id: '2', key: 'P-1', assignee: 'Марат', status: 'backlog', hle: null, plannedStart: null, plannedEnd: null },
-    { id: '3', key: 'P-3', assignee: 'Анна', status: 'testing', hle: 4, plannedStart: mon, plannedEnd: Store.addDays(mon, 4) },
-    { id: '4', key: 'P-4', assignee: '', status: 'backlog', hle: 2, plannedStart: null, plannedEnd: null },
-    { id: '5', key: 'P-5', assignee: 'Анна', status: 'rejected', hle: 99, plannedStart: null, plannedEnd: null },
+    { id: '1', key: 'P-2', rank: 1, status: 'development', hle: 10, plannedStart: mon, plannedEnd: Store.addDays(mon, 4) },
+    { id: '2', key: 'P-1', rank: 2, status: 'backlog', hle: null, plannedStart: null, plannedEnd: null },
+    { id: '3', key: 'P-3', rank: 3, status: 'testing', hle: 4, plannedStart: mon, plannedEnd: Store.addDays(mon, 4) },
+    { id: '4', key: 'P-4', rank: 4, status: 'backlog', hle: 2, plannedStart: null, plannedEnd: null },
+    { id: '5', key: 'P-5', rank: 5, status: 'rejected', hle: 99, plannedStart: null, plannedEnd: null },
   ];
   const o = Epics.overview(list, Store.today());
   assert.equal(o.open, 4);
@@ -212,12 +189,20 @@ test('сводка по плану и группировка по людям', (
   assert.equal(o.hleTotal, 16, 'отклонённый эпик в сумму не входит');
   assert.equal(o.noHle, 1);
   assert.equal(o.squeezed, 1);
-  assert.deepEqual(o.overloaded.map(p => [p.name, Math.round(p.peak * 100)]), [['Марат', 200]]);
+  assert.equal('overloaded' in o, false, 'загрузки людей больше нет');
 
-  const groups = Epics.groupRows(list, 'assignee');
-  assert.deepEqual(groups.map(g => g.name), ['Анна', 'Марат', null], 'без исполнителя — в конце');
-  assert.deepEqual(groups[1].epics.map(e => e.key), ['P-2', 'P-1'], 'запланированные выше');
-  assert.equal(Epics.groupRows(list, 'none').length, 1);
+  const flat = Epics.groupRows(list, 'none');
+  assert.equal(flat.length, 1);
+  assert.deepEqual(flat[0].epics.map(e => e.key), ['P-2', 'P-1', 'P-3', 'P-4', 'P-5'], 'по приоритету');
+  assert.equal(Epics.groupRows(list, 'assignee').length, 1, 'старый режим «по людям» — просто список');
+  assert.equal(typeof Epics.weeklyLoad, 'undefined');
+});
+
+test('сохранённая группировка «по людям» превращается в «по готовности»', () => {
+  const { Store } = loadApp();
+  const state = Store.parseImport(JSON.stringify({ sprints: [], settings: { roadmapGroup: 'assignee' } }));
+  assert.equal(state.settings.roadmapGroup, 'readiness');
+  assert.equal(Store.parseImport(JSON.stringify({ sprints: [], settings: { roadmapGroup: 'none' } })).settings.roadmapGroup, 'none');
 });
 
 test('шкала начинается с понедельника и покрывает все эпики', () => {
