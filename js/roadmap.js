@@ -8,7 +8,7 @@
    - тянуть край — сдвиг Planned Start или Planned End;
    - клик или протяжка по шкале у эпика без дат — поставить в план окном по HLE;
    - клик по полосе без движения — открыть эпик;
-   - тянуть за ручку ⋮⋮ слева от эпика — поменять приоритет (и на Ганте, и в бэклоге).
+   - тянуть за ручку ⋮⋮ слева от эпика — поменять порядок (и на Ганте, и в бэклоге).
    ============================================================ */
 const Roadmap = (() => {
   'use strict';
@@ -94,7 +94,7 @@ const Roadmap = (() => {
         ${toolbarHTML(list.length, all.length)}
         ${backlogHTML(list, today)}
         <p class="hint">
-          Тяните за ⋮⋮, чтобы поменять приоритет — порядок общий для бэклога и Ганта.
+          Тяните за ⋮⋮, чтобы поменять порядок — он общий для бэклога и Ганта.
           Готовность считается по статусу и HLE: проставьте оценку эпику в Ready for HLE — и он перейдёт в «Прошли груминг».
         </p>`;
       return;
@@ -128,7 +128,7 @@ const Roadmap = (() => {
         </div>
       </div>
       <p class="hint">
-        Тяните полосу, чтобы сдвинуть эпик, за край — чтобы поменять Planned Start или End, за ⋮⋮ — чтобы поменять приоритет.
+        Тяните полосу, чтобы сдвинуть эпик, за край — чтобы поменять Planned Start или End, за ⋮⋮ — чтобы поменять порядок.
         Пунктирные полосы — эпики, не прошедшие груминг: их даты пока ориентировочные.
         У эпика без дат кликните по шкале — окно поставится по HLE.
         «≈ чел» на полосе — сколько людей нужно, чтобы уложить HLE в окно: человеко-дни делятся на рабочие дни.
@@ -333,7 +333,7 @@ const Roadmap = (() => {
       : esc(e.key);
   }
 
-  const GRIP = '<span class="grip" data-grip title="Перетащите, чтобы поменять приоритет" aria-hidden="true"></span>';
+  const GRIP = '<span class="grip" data-grip title="Перетащите, чтобы поменять порядок" aria-hidden="true"></span>';
 
   function rowHTML(e, scope, today) {
     const st = Store.epicStatusById(e.status);
@@ -342,7 +342,7 @@ const Roadmap = (() => {
     const worst = problems.some(p => p.level === 'err') ? 'err' : problems.length ? 'warn' : '';
 
     return `
-      <div class="gantt__row ${Store.isEpicClosed(e) ? 'is-closed' : ''} ${stg.groomed === false ? 'is-ungroomed' : ''}"
+      <div class="gantt__row is-prio-${e.priority} ${Store.isEpicClosed(e) ? 'is-closed' : ''} ${stg.groomed === false ? 'is-ungroomed' : ''}"
            data-epic="${e.id}" data-sort-id="${e.id}" data-sort-scope="${esc(scope)}">
         <div class="gantt__label" data-epic-open="${e.id}" title="${esc(e.title)}\n${esc(stg.label)} — ${esc(stg.hint)}"
              style="--stage:${stg.color}">
@@ -352,6 +352,7 @@ const Roadmap = (() => {
             <span class="gl__title">${esc(e.title)}</span>
           </div>
           <div class="gl__line gl__meta">
+            ${UI.priorityTag(e)}
             <span class="tag"><i class="dot ${st.dot}"></i>${esc(st.label)}</span>
             <span class="tag ${e.hle === null ? 'tag--dropped' : 'tag--points'}">${e.hle === null ? 'нет HLE' : `${Metrics.fmt(e.hle)} п/д`}</span>
             ${worst ? `<span class="gl__warn gl__warn--${worst}" title="${esc(problems.map(p => p.text).join('\n'))}">!</span>` : ''}
@@ -441,7 +442,7 @@ const Roadmap = (() => {
         ${sec.epics.length ? `
         <div class="bl-list">
           <div class="bl-row bl-row--head">
-            <span></span><span>#</span><span>Эпик</span><span>Статус</span><span>HLE, п/д</span>
+            <span></span><span>#</span><span>Эпик</span><span>Приоритет</span><span>Статус</span><span>HLE, п/д</span>
             <span>${sec.key === 'groomed' ? '<span title="HLE нарастающим итогом сверху вниз — видно, где проходит черта ёмкости">Σ п/д</span>' : ''}</span>
           </div>
           ${rows}
@@ -459,10 +460,10 @@ const Roadmap = (() => {
     ].join('<span class="bl-dot">·</span>');
 
     return `
-      <div class="bl-row ${Store.isEpicClosed(e) ? 'is-closed' : ''}" data-sort-id="${e.id}" data-sort-scope="${scope}"
+      <div class="bl-row is-prio-${e.priority} ${Store.isEpicClosed(e) ? 'is-closed' : ''}" data-sort-id="${e.id}" data-sort-scope="${scope}"
            style="--stage:${stg.color}">
         ${GRIP}
-        <span class="bl-rank" title="Общий приоритет ${e.rank} из ${Store.epics().length}">${position}</span>
+        <span class="bl-rank" title="Место в общем порядке: ${e.rank} из ${Store.epics().length}">${position}</span>
         <div class="bl-main" data-epic-open="${e.id}">
           <div class="bl-title">
             <span class="bl-stage" title="${esc(stg.hint)}"><i></i>${esc(stg.label)}</span>
@@ -471,6 +472,9 @@ const Roadmap = (() => {
           </div>
           <div class="bl-meta">${meta}</div>
         </div>
+        <select class="input input--sm bl-prio prio-select--${e.priority}" data-inline-priority="${e.id}" aria-label="Приоритет">
+          ${Store.EPIC_PRIORITIES.map(p => `<option value="${p.id}" ${p.id === e.priority ? 'selected' : ''}>${p.label}</option>`).join('')}
+        </select>
         <select class="input input--sm bl-status" data-inline-status="${e.id}" aria-label="Статус">
           ${Store.EPIC_STATUSES.map(st => `<option value="${st.id}" ${st.id === e.status ? 'selected' : ''}>${st.label}</option>`).join('')}
         </select>

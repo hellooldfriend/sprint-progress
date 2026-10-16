@@ -793,5 +793,15 @@ const UI = (() => {
     }, 2600);
   }
 
-  return { view, render, renderBoard, renderDashboard, setTab, toast, esc, filterTasks };
+  /**
+   * Бейдж приоритета эпика. Стандартный по умолчанию не показываем — иначе он на каждой карточке
+   * и глаз перестаёт замечать блокирующие.
+   */
+  function priorityTag(epic, { showStandard = false } = {}) {
+    const p = Store.epicPriorityById(epic.priority);
+    if (p.id === 'standard' && !showStandard) return '';
+    return `<span class="tag prio prio--${p.id}" title="Приоритет: ${p.label}">${p.label}</span>`;
+  }
+
+  return { view, render, renderBoard, renderDashboard, setTab, toast, esc, filterTasks, priorityTag };
 })();

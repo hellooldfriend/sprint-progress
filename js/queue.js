@@ -8,7 +8,7 @@
 
    Жесты:
    - тянуть карточку на неделю — поставить в очередь (из пула или с другой недели);
-   - бросить на карточку, стартующую в ту же неделю, — встать перед ней по приоритету;
+   - бросить на карточку, стартующую в ту же неделю, — встать перед ней в порядке;
    - тянуть за правый край — сколько недель занимает эпик;
    - бросить в пул слева — убрать из очереди;
    - тянуть внутри пула — поднять важное выше (в пределах своей группы готовности);
@@ -23,7 +23,13 @@ const Queue = (() => {
   const COL = 228;            // ширина недели, px — карточка на неделю должна быть «большим квадратом»
   const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 
-  const view = { query: '', scrollToNow: true };
+  // prio: 'all' — все эпики, 'blocker' — только блокирующие, 'urgent' — блокирующие и критические
+  const view = { query: '', prio: 'all', scrollToNow: true };
+  const PRIO_FILTERS = [
+    { id: 'all',     label: 'Все',            max: Infinity },
+    { id: 'urgent',  label: 'Блок + Крит',    max: 1 },
+    { id: 'blocker', label: 'Блокирующие',    max: 0 },
+  ];
   let weeks = [];
   let handlers = { onOpen() {}, onPlace() {}, onReorder() {} };
 
@@ -53,7 +59,10 @@ const Queue = (() => {
       : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`;
   }
 
+  const prioOk = e => Store.epicPriorityIndex(e) <= (PRIO_FILTERS.find(f => f.id === view.prio) || PRIO_FILTERS[0]).max;
+
   function matches(e) {
+    if (!prioOk(e)) return false;
     const q = view.query.trim().toLowerCase();
     if (!q) return true;
     return [e.key, e.title, e.assignee, Store.epicStatusById(e.status).label]
@@ -87,7 +96,9 @@ const Queue = (() => {
     const visible = all.filter(e => showClosed || !Store.isEpicClosed(e));
     const byRank = (a, b) => a.rank - b.rank;
     const placed = visible.filter(e => e.queue).sort(byRank);
-    const pool = visible.filter(e => !e.queue).sort(byRank);
+    const fullPool = visible.filter(e => !e.queue);
+    // Длинный пул фильтр по приоритету сокращает, а на доске карточки только приглушает — недели должны остаться честными
+    const pool = fullPool.filter(prioOk).sort(byRank);
 
     weeks = Epics.queueWeeks(placed, today);
     const stats = Epics.queueStats(placed, weeks);
@@ -100,7 +111,7 @@ const Queue = (() => {
     mount.innerHTML = `
       ${toolbarHTML(stats[nowIdx], team)}
       <div class="queue">
-        ${poolHTML(pool)}
+        ${poolHTML(pool, fullPool)}
         <div class="queue__board" id="queueBoard" style="--col:${COL}px;--weeks:${weeks.length}">
           <div class="queue__head">
             ${weeks.map((w, i) => headHTML(w, stats[i], nowWeek, team)).join('')}
@@ -145,6 +156,13 @@ const Queue = (() => {
           <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           <input type="search" id="queueSearch" placeholder="Найти эпик…" value="${esc(view.query)}" />
         </label>
+        <div class="segmented" role="group" aria-label="Приоритет">
+          ${PRIO_FILTERS.map(f => `<button type="button" data-queue-prio="${f.id}" class="${view.prio === f.id ? 'is-active' : ''}">${f.label}</button>`).join('')}
+        </div>
+        <button class="btn btn--ghost btn--sm" data-epic-act="sort-priority"
+                title="Перестроить порядок: блокирующие наверх, низкие вниз. Внутри одного приоритета ручной порядок сохранится">
+          По приоритету
+        </button>
         <label class="queue__team" title="Сколько людей в команде — недели, где нужно больше, подсветятся">
           Команда
           <input class="input input--mini" type="number" min="0" max="999" step="1" id="queueTeam"
@@ -196,7 +214,12 @@ const Queue = (() => {
       </div>`;
   }
 
-  function poolHTML(pool) {
+  function poolHTML(pool, fullPool) {
+    const open = fullPool.filter(e => !Store.isEpicClosed(e));
+    const counts = [
+      { id: 'blocker', forms: ['блокирующий', 'блокирующих', 'блокирующих'] },
+      { id: 'critical', forms: ['критический', 'критических', 'критических'] },
+    ].map(c => ({ ...c, n: open.filter(e => e.priority === c.id).length })).filter(c => c.n);
     const groups = [
       { key: 'groomed', name: 'Прошли груминг', list: pool.filter(e => Epics.isGroomed(e) === true) },
       { key: 'ungroomed', name: 'Не прошли груминг', list: pool.filter(e => Epics.isGroomed(e) === false) },
@@ -207,8 +230,10 @@ const Queue = (() => {
       <aside class="queue__pool" data-queue-pool>
         <div class="queue__pool-head">
           <b>Не в очереди</b>
-          <span>${pool.length}</span>
+          <span>${pool.length === fullPool.length ? pool.length : `${pool.length} из ${fullPool.length}`}</span>
         </div>
+        ${counts.length ? `<div class="queue__pool-prio">${counts.map(c =>
+          `<span class="prio-count prio--${c.id}"><i></i>${c.n} ${Metrics.plural(c.n, ...c.forms)}</span>`).join('')}</div>` : ''}
         ${groups.length
           ? groups.map(g => `
               <div class="qp-group qp-group--${g.key}">${g.name} · ${g.list.length}</div>
@@ -234,7 +259,7 @@ const Queue = (() => {
     const place = col === null ? '' : `grid-column:${col + 1} / span ${span};`;
 
     return `
-      <article class="qcard ${cls}" data-qcard="${e.id}" data-span="${span}" ${poolGroup ? `data-pool-group="${poolGroup}"` : ''}
+      <article class="qcard qcard--prio-${e.priority} ${cls}" data-qcard="${e.id}" data-span="${span}" ${poolGroup ? `data-pool-group="${poolGroup}"` : ''}
                style="${place}--stage:${stg.color};--c:${st.color}"
                title="${esc(e.title)}\n${esc(stg.label)} — ${esc(stg.hint)}">
         <div class="qcard__top">
@@ -243,6 +268,7 @@ const Queue = (() => {
         </div>
         <div class="qcard__title">${esc(e.title)}</div>
         <div class="qcard__meta">
+          ${UI.priorityTag(e)}
           <span class="tag"><i class="dot ${st.dot}"></i>${esc(st.label)}</span>
           <span class="tag ${e.hle === null ? 'tag--dropped' : 'tag--points'}">${e.hle === null ? 'нет HLE' : `${Metrics.fmt(e.hle)} п/д`}</span>
         </div>

@@ -28,7 +28,7 @@ test('колонки русской выгрузки Jira распознаютс
   const { Store } = loadApp();
   const { mapping } = importCsv(Store);
   assert.deepEqual(mapping, {
-    key: 1, issueId: 2, title: 0, author: 5, assignee: 4, status: 3,
+    key: 1, issueId: 2, title: 0, author: 5, assignee: 4, status: 3, priority: -1,
     created: 6, hle: 7, plannedStart: 8, plannedEnd: 9,
   });
 });
@@ -130,13 +130,14 @@ test('CSV с планом: русские заголовки, экраниров
   Store.addEpic({ key: 'PRJ-1', title: 'Отчёт, "квартальный"', status: 'done', hle: 3,
                   plannedStart: '2026-10-05', plannedEnd: '2026-10-07' });
   const lines = Store.epicsToCsv().split('\r\n');
-  assert.equal(lines[0], 'Ключ проблемы,Идентификатор проблемы,Тема,Исполнитель,Статус,HLE,Planned Start,Planned End');
-  assert.equal(lines[1], 'PRJ-1,,"Отчёт, ""квартальный""",,Готово,3,2026-10-05,2026-10-07');
+  assert.equal(lines[0], 'Ключ проблемы,Идентификатор проблемы,Тема,Исполнитель,Статус,Приоритет,HLE,Planned Start,Planned End');
+  assert.equal(lines[1], 'PRJ-1,,"Отчёт, ""квартальный""",,Готово,Стандартный,3,2026-10-05,2026-10-07');
   // Выгрузка читается нашим же импортом — круг замкнут
   const rows = Store.parseCSV(lines.join('\n'));
   const items = Store.epicItemsFromCsv(rows, Store.detectCsvMapping(rows[0], Store.EPIC_CSV_HINTS)).items;
   assert.equal(items[0].title, 'Отчёт, "квартальный"');
   assert.equal(items[0].status, 'done');
+  assert.equal(items[0].priority, 'standard');
 });
 
 test('окно по HLE считается в рабочих днях, старт в выходной сдвигается на понедельник', () => {
@@ -457,4 +458,40 @@ test('удалить все эпики — вместе с очередью и �
   assert.deepEqual(Store.epics(), []);
   assert.equal(Store.parseImport(JSON.stringify(Store.get())).epics.length, 0, 'пустота переживает бэкап');
   assert.equal(Store.addEpic({ title: 'C' }).rank, 1, 'нумерация приоритета начинается заново');
+});
+
+test('приоритет эпика: по умолчанию стандартный, из Jira — по-русски и по-английски', () => {
+  const { Store } = loadApp();
+  assert.equal(Store.addEpic({ key: 'PRJ-1', title: 'Без приоритета' }).priority, 'standard');
+  assert.equal(Store.addEpic({ key: 'PRJ-2', title: 'Мусор', priority: 'urgent!!' }).priority, 'standard');
+  assert.equal(Store.matchEpicPriority('Блокирующий'), 'blocker');
+  assert.equal(Store.matchEpicPriority('Highest'), 'blocker');
+  assert.equal(Store.matchEpicPriority('Критический'), 'critical');
+  assert.equal(Store.matchEpicPriority('Medium'), 'standard');
+  assert.equal(Store.matchEpicPriority('Низкий'), 'low');
+  assert.equal(Store.matchEpicPriority('???'), null);
+});
+
+test('повторный импорт берёт приоритет из файла, а без колонки — оставляет свой', () => {
+  const { Store } = loadApp();
+  const withPrio = [
+    'Ключ проблемы,Тема,Статус,Приоритет',
+    'PRJ-1,Онбординг,Backlog,Блокирующий',
+    'PRJ-2,Биллинг,Backlog,Низкий',
+  ].join('\n');
+  Store.upsertEpics(importCsv(Store, withPrio).items);
+  assert.equal(Store.epics().find(e => e.key === 'PRJ-1').priority, 'blocker');
+  assert.equal(Store.epics().find(e => e.key === 'PRJ-2').priority, 'low');
+
+  Store.upsertEpics(importCsv(Store, 'Ключ проблемы,Тема,Статус\nPRJ-1,Онбординг,Backlog').items);
+  assert.equal(Store.epics().find(e => e.key === 'PRJ-1').priority, 'blocker', 'нет колонки — приоритет не сбрасываем');
+});
+
+test('сортировка по приоритету: блокирующие наверх, внутри приоритета ручной порядок', () => {
+  const { Store } = loadApp();
+  ['low', 'standard', 'blocker', 'standard', 'critical']
+    .forEach((priority, i) => Store.addEpic({ key: 'ABCDE'[i], title: 'ABCDE'[i], priority }));
+  assert.equal(Store.sortEpicsByPriority(), true);
+  assert.deepEqual([...Store.epics()].sort((x, y) => x.rank - y.rank).map(x => x.key), ['C', 'E', 'B', 'D', 'A']);
+  assert.equal(Store.sortEpicsByPriority(), false, 'второй раз ничего не меняет');
 });

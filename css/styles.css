@@ -983,7 +983,7 @@ body.is-sort-blocked, body.is-sort-blocked * { cursor: not-allowed !important; }
 .bl-section__stats b { color: var(--text); font-weight: 600; }
 .bl-list { display: flex; flex-direction: column; }
 .bl-row {
-  display: grid; grid-template-columns: 16px 28px minmax(0, 1fr) 190px 84px 60px;
+  display: grid; grid-template-columns: 16px 28px minmax(0, 1fr) 152px 190px 84px 60px;
   align-items: center; gap: 10px; padding: 8px 8px 8px 6px;
   border-top: 1px solid var(--border); border-radius: 0;
   box-shadow: inset 3px 0 0 var(--stage, transparent);
@@ -1167,7 +1167,7 @@ body.is-sort-blocked, body.is-sort-blocked * { cursor: not-allowed !important; }
   .readiness__top { flex-wrap: wrap; }
   .readiness__bar { order: 3; flex-basis: 100%; }
   .bl-row { grid-template-columns: 16px minmax(0, 1fr) 72px; }
-  .bl-rank, .bl-status, .bl-cum, .bl-row--head { display: none; }
+  .bl-rank, .bl-status, .bl-prio, .bl-cum, .bl-row--head { display: none; }
   .queue { flex-direction: column; }
   .queue__pool { width: 100%; max-height: 260px; min-height: 0; }
   .queue__board { min-height: 360px; }
@@ -1176,3 +1176,41 @@ body.is-sort-blocked, body.is-sort-blocked * { cursor: not-allowed !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ───────────── Приоритет эпика ───────────── */
+.prio--blocker  { --prio: var(--red);   --prio-soft: var(--red-soft); }
+.prio--critical { --prio: var(--amber); --prio-soft: var(--amber-soft); }
+.prio--standard { --prio: var(--blue);  --prio-soft: var(--blue-soft); }
+.prio--low      { --prio: var(--faint); --prio-soft: var(--surface-3); }
+
+.tag.prio { color: var(--prio); background: var(--prio-soft); border-color: color-mix(in srgb, var(--prio) 35%, transparent); font-weight: 600; }
+.tag.prio--blocker::before { content: ''; width: 6px; height: 6px; border-radius: 99px; background: var(--prio); }
+.tag.prio--low { color: var(--muted); }
+
+/* Селект в строке бэклога: цвет — значение */
+.bl-prio { font-weight: 600; }
+.prio-select--blocker  { color: var(--red);   border-color: color-mix(in srgb, var(--red) 45%, transparent);   background-color: var(--red-soft); }
+.prio-select--critical { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 45%, transparent); background-color: var(--amber-soft); }
+.prio-select--low      { color: var(--faint); }
+.bl-prio option { color: var(--text); background: var(--surface-2); }
+
+/* Строки: блокирующие и критические видно на любом расстоянии */
+.bl-row.is-prio-blocker  { background: linear-gradient(90deg, var(--red-soft), transparent 45%); }
+.bl-row.is-prio-critical { background: linear-gradient(90deg, var(--amber-soft), transparent 35%); }
+.bl-row.is-prio-low .gl__title { color: var(--muted); }
+.gantt__row.is-prio-blocker .gantt__label { box-shadow: inset 3px 0 0 var(--stage, transparent), inset 0 0 0 1px color-mix(in srgb, var(--red) 40%, transparent); }
+
+/* Карточки очереди */
+.qcard--prio-blocker {
+  border-color: color-mix(in srgb, var(--red) 65%, transparent);
+  background: linear-gradient(180deg, var(--red-soft), transparent 60%), var(--surface-2);
+}
+.qcard--prio-blocker.is-ungroomed { background: linear-gradient(180deg, var(--red-soft), transparent 60%), var(--surface); }
+.qcard--prio-critical { border-color: color-mix(in srgb, var(--amber) 55%, transparent); }
+.qcard--prio-blocker:hover { border-color: var(--red); }
+.qcard--prio-critical:hover { border-color: var(--amber); }
+.qcard--prio-low:not(:hover) .qcard__title { color: var(--muted); }
+
+.queue__pool-prio { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 4px 8px; font-size: 11.5px; }
+.prio-count { display: inline-flex; align-items: center; gap: 5px; color: var(--prio); font-weight: 500; }
+.prio-count i { width: 7px; height: 7px; border-radius: 99px; background: var(--prio); }

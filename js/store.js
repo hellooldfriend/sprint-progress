@@ -20,7 +20,8 @@
      epics: [{ id, key:string, issueId:string, title, author, assignee, status,
                createdAt:ISO, plannedStart:'YYYY-MM-DD'|null, plannedEnd:'YYYY-MM-DD'|null,
                hle:number|null,     // HLE — высокоуровневая оценка в человеко-днях
-               rank:number,         // ручной приоритет: 1 — самый важный
+               priority:'blocker'|'critical'|'standard'|'low',   // приоритет из Jira
+               rank:number,         // ручной порядок: 1 — самый важный
                queue:{ week:'YYYY-MM-DD' (понедельник), span:number (недель) }|null }]
                                     // место на доске «Очередь» — не зависит от Planned Start/End
    }
@@ -80,6 +81,43 @@ const Store = (() => {
   const EPIC_STATUS_IDS = EPIC_STATUSES.map(s => s.id);
   const epicStatusById = id => EPIC_STATUSES.find(s => s.id === id) || EPIC_STATUSES[0];
   const isEpicClosed = epic => !!epicStatusById(epic.status).closed;
+
+  /**
+   * Приоритет эпика — как в Jira. Это класс важности, а ранг — порядок внутри списка:
+   * блокирующий эпик видно сразу, даже если его ещё не подняли наверх руками.
+   */
+  const EPIC_PRIORITIES = [
+    { id: 'blocker',  label: 'Блокирующий', short: 'Блок',  color: 'var(--red)' },
+    { id: 'critical', label: 'Критический', short: 'Крит',  color: 'var(--amber)' },
+    { id: 'standard', label: 'Стандартный', short: 'Станд', color: 'var(--blue)' },
+    { id: 'low',      label: 'Низкий',      short: 'Низк',  color: 'var(--faint)' },
+  ];
+  const EPIC_PRIORITY_IDS = EPIC_PRIORITIES.map(p => p.id);
+  const DEFAULT_EPIC_PRIORITY = 'standard';
+  const epicPriorityById = id => EPIC_PRIORITIES.find(p => p.id === id) || epicPriorityById(DEFAULT_EPIC_PRIORITY);
+  const epicPriorityIndex = epic => {
+    const i = EPIC_PRIORITY_IDS.indexOf(epic.priority);
+    return i === -1 ? EPIC_PRIORITY_IDS.indexOf(DEFAULT_EPIC_PRIORITY) : i;
+  };
+
+  const EPIC_PRIORITY_ALIASES = {
+    blocker:  ['blocker', 'blocking', 'highest', 'block', 'блокирующий', 'блокирующая', 'блокер', 'наивысший', 'блок'],
+    critical: ['critical', 'high', 'major', 'критический', 'критичный', 'критическая', 'высокий', 'высокая', 'крит'],
+    standard: ['standard', 'medium', 'normal', 'default', 'стандартный', 'стандартная', 'средний', 'средняя',
+               'обычный', 'нормальный'],
+    low:      ['low', 'lowest', 'minor', 'trivial', 'низкий', 'низкая', 'наименьший', 'незначительный', 'тривиальный'],
+  };
+
+  /** Строка из Jira → id приоритета эпика, либо null. */
+  function matchEpicPriority(str) {
+    const n = normalizeWord(str);
+    if (!n) return null;
+    if (EPIC_PRIORITY_IDS.includes(n)) return n;
+    for (const [id, aliases] of Object.entries(EPIC_PRIORITY_ALIASES)) {
+      if (aliases.includes(n)) return id;
+    }
+    return null;
+  }
 
   /** Как статусы эпиков пишут в Jira — ключи нормализованы так же, как у задач. */
   const EPIC_STATUS_ALIASES = {
@@ -463,6 +501,7 @@ const Store = (() => {
       plannedStart,
       plannedEnd,
       hle: normalizeDays(e.hle),
+      priority: EPIC_PRIORITY_IDS.includes(e.priority) ? e.priority : DEFAULT_EPIC_PRIORITY,
       rank: e.rank !== null && e.rank !== undefined && Number.isFinite(Number(e.rank)) ? Number(e.rank) : null,
       queue: normalizeQueue(e.queue),
     };
@@ -1142,6 +1181,7 @@ const Store = (() => {
     author:       ['автор', 'reporter', 'author', 'creator', 'создатель'],
     assignee:     ['исполнитель', 'assignee', 'ответственный'],
     status:       ['статус', 'status'],
+    priority:     ['приоритет', 'priority'],
     created:      ['создано', 'created', 'дата создания'],
     hle:          ['hle', 'high level estimation', 'high-level estimation', 'оценка hle'],
     plannedStart: ['planned start', 'planned start date', 'плановое начало', 'плановая дата начала'],
@@ -1150,7 +1190,7 @@ const Store = (() => {
   const EPIC_CSV_FIELDS = Object.keys(EPIC_CSV_HINTS);
   const EPIC_CSV_LABELS = {
     key: 'Ключ проблемы', issueId: 'Идентификатор проблемы', title: 'Тема', author: 'Автор',
-    assignee: 'Исполнитель', status: 'Статус', created: 'Создано', hle: 'HLE, п/д',
+    assignee: 'Исполнитель', status: 'Статус', priority: 'Приоритет', created: 'Создано', hle: 'HLE, п/д',
     plannedStart: 'Planned Start', plannedEnd: 'Planned End',
   };
 
@@ -1173,6 +1213,7 @@ const Store = (() => {
       const status = matchEpicStatus(rawStatus);
       if (rawStatus && !status) unknown.add(rawStatus);
 
+      const rawPriority = cell(row, mapping.priority);
       const rawHle = cell(row, mapping.hle).replace(',', '.');
       return {
         key,
@@ -1182,6 +1223,7 @@ const Store = (() => {
         assignee: cell(row, mapping.assignee),
         status: status || 'backlog',
         rawStatus,
+        priority: matchEpicPriority(rawPriority),     // null — в файле нет или не распознали
         createdAt: parseDateTime(cell(row, mapping.created)),
         hle: rawHle !== '' && !isNaN(parseFloat(rawHle)) ? normalizeDays(parseFloat(rawHle)) : null,
         plannedStart: parseDateOnly(cell(row, mapping.plannedStart)),
@@ -1269,6 +1311,19 @@ const Store = (() => {
     if (changed) save();
     return changed;
   }
+  /**
+   * Перестроить общий порядок по приоритету: блокирующие наверх, низкие вниз.
+   * Внутри одного приоритета ручной порядок сохраняется.
+   * @returns {boolean} поменялось ли что-то
+   */
+  function sortEpicsByPriority() {
+    const order = [...state.epics].sort((a, b) => epicPriorityIndex(a) - epicPriorityIndex(b) || a.rank - b.rank);
+    const changed = order.some((e, i) => e.rank !== i + 1);
+    order.forEach((e, i) => { e.rank = i + 1; });
+    if (changed) save();
+    return changed;
+  }
+
 
   /**
    * Заливка эпиков из выгрузки с обновлением по ключу.
@@ -1304,6 +1359,8 @@ const Store = (() => {
         // Пустой исполнитель в выгрузке — это «не назначен в Jira», а не «снимите мой план»
         assignee: item.assignee || existing.assignee,
         status: item.rawStatus ? item.status : existing.status,
+        // Приоритет, как и статус, живёт в Jira: есть в файле — берём, нет — оставляем свой
+        priority: item.priority || existing.priority,
         createdAt: item.createdAt || existing.createdAt,
         ...plan,
       }));
@@ -1366,10 +1423,10 @@ const Store = (() => {
 
   /** План эпиков в CSV — чтобы вернуть даты и HLE в Jira через импорт. */
   function epicsToCsv(list) {
-    const head = ['Ключ проблемы', 'Идентификатор проблемы', 'Тема', 'Исполнитель', 'Статус',
+    const head = ['Ключ проблемы', 'Идентификатор проблемы', 'Тема', 'Исполнитель', 'Статус', 'Приоритет',
                   'HLE', 'Planned Start', 'Planned End'];
     const rows = [...(list || state.epics)].sort((a, b) => a.rank - b.rank).map(e => [
-      e.key, e.issueId, e.title, e.assignee, epicStatusById(e.status).label,
+      e.key, e.issueId, e.title, e.assignee, epicStatusById(e.status).label, epicPriorityById(e.priority).label,
       e.hle === null ? '' : String(e.hle), e.plannedStart || '', e.plannedEnd || '',
     ]);
     return [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
@@ -1441,6 +1498,7 @@ const Store = (() => {
     exportJSON, parseImport, replaceState,
     // эпики
     EPIC_STATUSES, EPIC_STATUS_IDS, epicStatusById, isEpicClosed, matchEpicStatus, parseDateOnly,
+    EPIC_PRIORITIES, EPIC_PRIORITY_IDS, epicPriorityById, epicPriorityIndex, matchEpicPriority, sortEpicsByPriority,
     EPIC_CSV_HINTS, EPIC_CSV_FIELDS, EPIC_CSV_LABELS, epicItemsFromCsv, epicsToCsv, exportEpicsCsv,
     epics, epicById, addEpic, updateEpic, deleteEpic, deleteAllEpics, upsertEpics, moveEpic, moveEpicToEdge, setEpicQueue, applyQueuePlan, applyPlanToQueue, mondayOf, QUEUE_MAX_SPAN,
   };

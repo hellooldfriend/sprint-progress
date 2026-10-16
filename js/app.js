@@ -82,6 +82,8 @@
       .map(r => `<option value="${r.id}">${r.label}</option>`).join('');
     $('#epicStatusSelect').innerHTML = Store.EPIC_STATUSES
       .map(s => `<option value="${s.id}" ${s.id === 'backlog' ? 'selected' : ''}>${s.label}</option>`).join('');
+    $('#epicPrioritySelect').innerHTML = Store.EPIC_PRIORITIES
+      .map(p => `<option value="${p.id}">${p.label}</option>`).join('');
   }
 
   function openSprintModal(sprint) {
@@ -900,13 +902,14 @@
     $('#epicPeople').innerHTML = knownPeople().map(n => `<option value="${UI.esc(n)}"></option>`).join('');
 
     if (epic) {
-      ['title', 'key', 'issueId', 'assignee', 'author', 'status'].forEach(f => { form[f].value = epic[f] || ''; });
+      ['title', 'key', 'issueId', 'assignee', 'author', 'status', 'priority'].forEach(f => { form[f].value = epic[f] || ''; });
       form.hle.value = epic.hle === null ? '' : epic.hle;
       form.plannedStart.value = epic.plannedStart || '';
       form.plannedEnd.value = epic.plannedEnd || '';
       $('#epicCreatedHint').textContent = `Создано ${new Date(epic.createdAt).toLocaleDateString('ru-RU')}`;
     } else {
       form.status.value = 'backlog';
+      form.priority.value = 'standard';
       $('#epicCreatedHint').textContent = '';
     }
     updateEpicWindowHint();
@@ -972,6 +975,7 @@
       assignee: form.assignee.value.trim(),
       author: form.author.value.trim(),
       status: form.status.value,
+      priority: form.priority.value,
       hle: form.hle.value === '' ? null : Number(form.hle.value),
       plannedStart: form.plannedStart.value || null,
       plannedEnd: form.plannedEnd.value || null,
@@ -1041,7 +1045,7 @@
     UI.render();
     const epic = Store.epicById(id);
     if (!epic || !moved) return;
-    UI.toast(`${epic.key || `«${epic.title}»`}: приоритет ${epic.rank}`, 'ok');
+    UI.toast(`${epic.key || `«${epic.title}»`}: ${epic.rank}-й в порядке`, 'ok');
   }
 
   /** Тост, если правка перевела эпик через черту груминга — это главное событие на груминге. */
@@ -1067,6 +1071,11 @@
     if (act === 'queue-to-plan') return queueToPlan();
     if (act === 'delete-all') return deleteAllEpics();
     if (act === 'plan-to-queue') return planToQueue();
+    if (act === 'sort-priority') {
+      const changed = Store.sortEpicsByPriority();
+      UI.render();
+      return UI.toast(changed ? 'Порядок перестроен: блокирующие наверху, низкие внизу' : 'Порядок уже по приоритету', changed ? 'ok' : 'info');
+    }
     if (act === 'toggle-closed') {
       Store.setSetting('roadmapShowClosed', !Store.get().settings.roadmapShowClosed);
       return UI.render();
@@ -1223,6 +1232,11 @@
   }
 
   $('#queueBody').addEventListener('click', e => {
+    const prio = e.target.closest('[data-queue-prio]');
+    if (prio) {
+      Queue.view.prio = prio.dataset.queuePrio;
+      return Queue.render();
+    }
     const act = e.target.closest('[data-epic-act]');
     if (act) epicAction(act.dataset.epicAct);
   });
@@ -1270,7 +1284,7 @@
       title: 'Удалить все эпики?',
       text: `Будут удалены все ${n} ${Metrics.plural(n, 'эпик', 'эпика', 'эпиков')}` +
             (queued ? `, из них ${queued} ${Metrics.plural(queued, 'стоит', 'стоят', 'стоят')} в очереди` : '') + `. ` +
-            `Вместе с ними пропадут приоритеты, раскладка по неделям, HLE и плановые даты. ` +
+            `Вместе с ними пропадут порядок, приоритеты, раскладка по неделям, HLE и плановые даты. ` +
             `Повторный импорт из Jira вернёт сами эпики, но не то, что вы настроили здесь. ` +
             `Действие необратимо: если данные нужны, сначала нажмите «Экспорт» в боковой панели.` +
             (FileSync.state().status === 'on' ? ' Файл автосохранения тоже перезапишется.' : ''),
@@ -1316,8 +1330,15 @@
     }
   });
 
-  // Правки прямо в строке бэклога: статус и HLE — то, что меняется на груминге
+  // Правки прямо в строке бэклога: статус и HLE — то, что меняется на груминге, и приоритет
   $('#epicsBody').addEventListener('change', e => {
+    const prioId = e.target.dataset.inlinePriority;
+    if (prioId) {
+      const epic = Store.updateEpic(prioId, { priority: e.target.value });
+      UI.render();
+      if (epic) UI.toast(`${epic.key || `«${epic.title}»`}: ${Store.epicPriorityById(epic.priority).label.toLowerCase()} приоритет`, 'ok');
+      return;
+    }
     const statusId = e.target.dataset.inlineStatus;
     const hleId = e.target.dataset.inlineHle;
     const id = statusId || hleId;
@@ -1461,6 +1482,7 @@
           ${item.key ? `<span class="bulk-row__key">${UI.esc(item.key)}</span>` : '<span class="bulk-row__key is-empty">—</span>'}
           <span class="bulk-row__title">${UI.esc(item.title)}</span>
           <span class="tag"><i class="dot ${st.dot}"></i>${st.label}</span>
+          ${item.priority ? UI.priorityTag(item) : ''}
           ${item.hle !== null ? `<span class="tag tag--points">${Metrics.fmt(item.hle)} п/д</span>` : ''}
           ${item.plannedStart && item.plannedEnd ? `<span class="tag">${Store.formatRange(item.plannedStart, item.plannedEnd)}</span>` : ''}
           ${conflict ? `<span class="tag tag--longrun" title="Здесь: ${Store.formatRange(existing.plannedStart, existing.plannedEnd)}">${overwrite ? 'даты из файла' : 'даты оставим наши'}</span>` : ''}
