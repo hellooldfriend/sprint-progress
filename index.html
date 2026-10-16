@@ -109,6 +109,14 @@
           <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Эпик
         </button>
+        <div class="menu-wrap">
+          <button class="icon-btn" id="btnEpicsMenu" aria-label="Ещё действия с эпиками" title="Ещё">
+            <svg class="ico" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></svg>
+          </button>
+          <div class="menu" id="epicsMenu" hidden>
+            <button data-epic-act="delete-all" class="is-danger"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Удалить все эпики</button>
+          </div>
+        </div>
       </div>
 
       <div class="topbar__actions" id="sprintActions">
@@ -135,7 +143,9 @@
             <button data-act="edit">Редактировать спринт</button>
             <button data-act="archive">Закрыть спринт</button>
             <button data-act="reopen">Вернуть в работу</button>
-            <button data-act="delete" class="is-danger">Удалить спринт</button>
+            <div class="menu__sep"></div>
+            <button data-act="clear-tasks" class="is-danger"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Удалить все задачи спринта</button>
+            <button data-act="delete" class="is-danger"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Удалить спринт</button>
           </div>
         </div>
       </div>

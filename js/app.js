@@ -39,6 +39,7 @@
       if (open) { closeModal(open.id); return; }
       $('#epicMenu').hidden = true;
       $('#sprintMenu').hidden = true;
+      $('#epicsMenu').hidden = true;
       document.body.classList.remove('nav-open');
     }
   });
@@ -525,6 +526,10 @@
     if (!s) return UI.toast('Нет активного спринта', 'err');
     menu.querySelector('[data-act="archive"]').hidden = s.status === 'archived';
     menu.querySelector('[data-act="reopen"]').hidden = s.status !== 'archived';
+    // Закрытый спринт — только просмотр, как и вся его доска
+    const clear = menu.querySelector('[data-act="clear-tasks"]');
+    clear.hidden = s.status === 'archived';
+    clear.disabled = !s.tasks.length;
     menu.hidden = !menu.hidden;
   });
   document.addEventListener('click', e => {
@@ -543,6 +548,23 @@
     if (btn.dataset.act === 'archive') return openCloseSprintModal();
 
     if (btn.dataset.act === 'reopen') return reopenActive();
+
+    if (btn.dataset.act === 'clear-tasks') {
+      const n = s.tasks.length;
+      if (!n) return;
+      const ok = await confirmDialog({
+        title: `Удалить все задачи спринта?`,
+        text: `Из «${s.name}» будут удалены все ${n} ${Metrics.plural(n, 'задача', 'задачи', 'задач')} — ` +
+              `вместе с метриками, burn-down и отметками переноса. Сам спринт останется пустым. ` +
+              `Действие необратимо: если данные нужны, сначала нажмите «Экспорт» в боковой панели.` +
+              (FileSync.state().status === 'on' ? ' Файл автосохранения тоже перезапишется.' : ''),
+        okLabel: `Удалить ${n} ${Metrics.plural(n, 'задачу', 'задачи', 'задач')}`,
+      });
+      if (!ok) return;
+      const removed = Store.clearSprintTasks(s.id);
+      UI.render();
+      return UI.toast(`Удалено ${removed} ${Metrics.plural(removed, 'задача', 'задачи', 'задач')} из «${s.name}»`);
+    }
 
     if (btn.dataset.act === 'delete') {
       const ok = await confirmDialog({
@@ -1043,6 +1065,7 @@
     }
     if (act === 'today') return UI.view.tab === 'queue' ? Queue.scrollToNow() : Roadmap.scrollToToday();
     if (act === 'queue-to-plan') return queueToPlan();
+    if (act === 'delete-all') return deleteAllEpics();
     if (act === 'plan-to-queue') return planToQueue();
     if (act === 'toggle-closed') {
       Store.setSetting('roadmapShowClosed', !Store.get().settings.roadmapShowClosed);
@@ -1221,8 +1244,43 @@
 
   $('#epicActions').addEventListener('click', e => {
     const btn = e.target.closest('[data-epic-act]');
-    if (btn) epicAction(btn.dataset.epicAct);
+    if (!btn) return;
+    $('#epicsMenu').hidden = true;
+    epicAction(btn.dataset.epicAct);
   });
+
+  // Меню ⋯ эпиков: редкие и опасные действия, чтобы не мозолили глаза
+  $('#btnEpicsMenu').addEventListener('click', e => {
+    e.stopPropagation();
+    const menu = $('#epicsMenu');
+    menu.querySelector('[data-epic-act="delete-all"]').disabled = !Store.epics().length;
+    menu.hidden = !menu.hidden;
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#epicsMenu') && !e.target.closest('#btnEpicsMenu')) $('#epicsMenu').hidden = true;
+  });
+
+  /** Удалить все эпики — только после явного предупреждения с цифрами. */
+  async function deleteAllEpics() {
+    const all = Store.epics();
+    if (!all.length) return UI.toast('Эпиков нет', 'err');
+    const n = all.length;
+    const queued = all.filter(e => e.queue).length;
+    const ok = await confirmDialog({
+      title: 'Удалить все эпики?',
+      text: `Будут удалены все ${n} ${Metrics.plural(n, 'эпик', 'эпика', 'эпиков')}` +
+            (queued ? `, из них ${queued} ${Metrics.plural(queued, 'стоит', 'стоят', 'стоят')} в очереди` : '') + `. ` +
+            `Вместе с ними пропадут приоритеты, раскладка по неделям, HLE и плановые даты. ` +
+            `Повторный импорт из Jira вернёт сами эпики, но не то, что вы настроили здесь. ` +
+            `Действие необратимо: если данные нужны, сначала нажмите «Экспорт» в боковой панели.` +
+            (FileSync.state().status === 'on' ? ' Файл автосохранения тоже перезапишется.' : ''),
+      okLabel: `Удалить ${n} ${Metrics.plural(n, 'эпик', 'эпика', 'эпиков')}`,
+    });
+    if (!ok) return;
+    const removed = Store.deleteAllEpics();
+    UI.render();
+    UI.toast(`Удалено ${removed} ${Metrics.plural(removed, 'эпик', 'эпика', 'эпиков')}`);
+  }
 
   $('#epicsBody').addEventListener('click', e => {
     const act = e.target.closest('[data-epic-act]');

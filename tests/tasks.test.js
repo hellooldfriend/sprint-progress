@@ -157,3 +157,16 @@ test('удаление задачи убирает её из спринта', ()
   Store.deleteTask(sid, byKey(Store, sid, 'A-1').id);
   assert.deepEqual(Store.sprintById(sid).tasks.map(t => t.key), ['A-2']);
 });
+
+test('удалить все задачи спринта — спринт остаётся, другие не трогаем', () => {
+  const app = loadApp();
+  const { Store } = app;
+  const a = makeSprint(app, { name: 'A', tasks: [{ key: 'A-1', points: 3 }, { key: 'A-2', points: 5, status: 'done' }] });
+  const b = makeSprint(app, { name: 'B', tasks: [{ key: 'B-1', points: 2 }] });
+  assert.equal(Store.clearSprintTasks(a.id), 2);
+  assert.equal(Store.sprintById(a.id).tasks.length, 0);
+  assert.ok(Store.sprintById(a.id), 'спринт на месте');
+  assert.equal(Store.sprintById(b.id).tasks.length, 1, 'чужой спринт не задет');
+  assert.equal(Store.clearSprintTasks(a.id), 0);
+  assert.equal(Store.clearSprintTasks('нет такого'), 0);
+});

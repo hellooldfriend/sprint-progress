@@ -443,3 +443,15 @@ test('в самый верх и в самый низ приоритета', () =
   assert.equal(Store.moveEpicToEdge('нет такого', 'top'), false);
   assert.equal(b.rank, 1);
 });
+
+test('удалить все эпики — вместе с очередью и приоритетом', () => {
+  const { Store } = loadApp();
+  assert.equal(Store.deleteAllEpics(), 0, 'пусто — нечего удалять');
+  const a = Store.addEpic({ title: 'A' });
+  Store.addEpic({ title: 'B' });
+  Store.setEpicQueue(a.id, '2026-10-12', 2);
+  assert.equal(Store.deleteAllEpics(), 2);
+  assert.deepEqual(Store.epics(), []);
+  assert.equal(Store.parseImport(JSON.stringify(Store.get())).epics.length, 0, 'пустота переживает бэкап');
+  assert.equal(Store.addEpic({ title: 'C' }).rank, 1, 'нумерация приоритета начинается заново');
+});

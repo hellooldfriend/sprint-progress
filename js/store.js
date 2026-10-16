@@ -1109,6 +1109,19 @@ const Store = (() => {
     });
   }
 
+  /**
+   * Удаляет все задачи спринта, сам спринт остаётся пустым.
+   * @returns {number} сколько задач удалено
+   */
+  function clearSprintTasks(sprintId) {
+    const s = sprintById(sprintId);
+    if (!s || !s.tasks.length) return 0;
+    const count = s.tasks.length;
+    s.tasks = [];
+    save();
+    return count;
+  }
+
   function deleteTask(sprintId, taskId) {
     const s = sprintById(sprintId);
     if (!s) return;
@@ -1197,6 +1210,18 @@ const Store = (() => {
     Object.assign(e, normalizeEpic({ ...e, ...patch, id: e.id }));
     save();
     return e;
+  }
+
+  /**
+   * Удаляет все эпики разом — вместе с приоритетом, очередью и планом.
+   * @returns {number} сколько эпиков удалено
+   */
+  function deleteAllEpics() {
+    const count = state.epics.length;
+    if (!count) return 0;
+    state.epics = [];
+    save();
+    return count;
   }
 
   function deleteEpic(id) {
@@ -1407,13 +1432,13 @@ const Store = (() => {
     // спринты
     createSprint, updateSprint, archiveSprint, reopenSprint, deleteSprint, selectSprint,
     // задачи
-    addTask, addTasksBulk, addTasksFromItems, updateTask, setTaskStatus, shiftTaskStatus, toggleTaskDropped, deleteTask,
+    addTask, addTasksBulk, addTasksFromItems, updateTask, setTaskStatus, shiftTaskStatus, toggleTaskDropped, deleteTask, clearSprintTasks,
     carryCandidates, carryTasks,
     // данные
     exportJSON, parseImport, replaceState,
     // эпики
     EPIC_STATUSES, EPIC_STATUS_IDS, epicStatusById, isEpicClosed, matchEpicStatus, parseDateOnly,
     EPIC_CSV_HINTS, EPIC_CSV_FIELDS, EPIC_CSV_LABELS, epicItemsFromCsv, epicsToCsv, exportEpicsCsv,
-    epics, epicById, addEpic, updateEpic, deleteEpic, upsertEpics, moveEpic, moveEpicToEdge, setEpicQueue, applyQueuePlan, applyPlanToQueue, mondayOf, QUEUE_MAX_SPAN,
+    epics, epicById, addEpic, updateEpic, deleteEpic, deleteAllEpics, upsertEpics, moveEpic, moveEpicToEdge, setEpicQueue, applyQueuePlan, applyPlanToQueue, mondayOf, QUEUE_MAX_SPAN,
   };
 })();

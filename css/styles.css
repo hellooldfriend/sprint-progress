@@ -273,6 +273,10 @@ body.sidebar-collapsed .sidebar {
 .menu button:hover { background: var(--surface-3); color: var(--text); }
 .menu button.is-danger { color: #f87171; }
 .menu button.is-danger:hover { background: var(--red-soft); }
+.menu button { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.menu button:disabled { opacity: .35; cursor: default; }
+.menu button:disabled:hover { background: none; color: var(--muted); }
+.menu__sep { height: 1px; background: var(--border); margin: 3px 4px; }
 @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
 
 /* ─────────────── 5. Топбар ─────────────── */
@@ -1112,9 +1116,6 @@ body.is-sort-blocked, body.is-sort-blocked * { cursor: not-allowed !important; }
 
 /* Меню эпика по правой кнопке */
 .ctx-menu { position: fixed; right: auto; top: 0; left: 0; z-index: 180; min-width: 230px; max-width: 320px; }
-.ctx-menu button { display: flex; align-items: center; gap: 9px; }
-.ctx-menu button:disabled { opacity: .35; cursor: default; }
-.ctx-menu button:disabled:hover { background: none; color: var(--muted); }
 .ctx-menu__title {
   padding: 6px 10px 7px; font-size: 11.5px; color: var(--faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
