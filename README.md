@@ -188,8 +188,8 @@ Backlog → To Do → In Progress → Review → Ready to Test → Testing → D
 Статусы — свой workflow эпика:
 
 ```
-Backlog → Requirements definition → Ready for HLE → Development
-        → Ready for Testing → Testing → Ready for Deploy → Готово      (+ Rejected)
+Backlog → Requirements definition → Ready for HLE → Готов к разработке
+        → Development → Ready for Testing → Testing → Ready for Deploy → Готово      (+ Rejected)
 ```
 
 Готово и Rejected считаются закрытыми: людей не занимают и по умолчанию скрыты
@@ -206,8 +206,8 @@ Backlog → Requirements definition → Ready for HLE → Development
 | Стадия | Когда | Груминг |
 |---|---|---|
 | Требования | Backlog, Requirements definition | не прошли |
-| Ждут HLE | Ready for HLE без оценки | не прошли |
-| Готовы к работе | Ready for HLE с проставленным HLE | прошли |
+| Ждут HLE | Ready for HLE или Готов к разработке без оценки | не прошли |
+| Готовы к работе | Ready for HLE или Готов к разработке с проставленным HLE | прошли |
 | В работе | Development, Ready for Testing, Testing, Ready for Deploy | прошли |
 
 Клик по стадии в полосе оставляет только её эпики, повторный клик снимает фильтр.

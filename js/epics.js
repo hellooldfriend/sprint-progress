@@ -19,8 +19,8 @@ const Epics = (() => {
    * статус приезжает из Jira, и два источника правды разъехались бы на первом же импорте.
    *
    *   requirements — Backlog, Requirements definition: требования ещё не понятны;
-   *   estimate     — Ready for HLE без оценки: требования понятны, ждём HLE;
-   *   ready        — Ready for HLE с оценкой: можно брать в работу;
+   *   estimate     — Ready for HLE / Готов к разработке без оценки: требования понятны, ждём HLE;
+   *   ready        — Ready for HLE / Готов к разработке с оценкой: можно брать в работу;
    *   progress     — Development … Ready for Deploy: уже делаем;
    *   closed       — Готово, Rejected.
    *
@@ -34,12 +34,13 @@ const Epics = (() => {
     { id: 'closed',       label: 'Закрыты',           hint: 'Готово и Rejected',                    groomed: null,  color: 'var(--faint)' },
   ];
   const stageById = id => STAGES.find(s => s.id === id);
+  const GROOMING = ['ready_for_hle', 'ready_for_dev'];
   const IN_WORK = ['development', 'ready_for_testing', 'testing', 'ready_for_deploy'];
 
   function stage(e) {
     if (Store.isEpicClosed(e)) return 'closed';
     if (IN_WORK.includes(e.status)) return 'progress';
-    if (e.status === 'ready_for_hle') return e.hle ? 'ready' : 'estimate';
+    if (GROOMING.includes(e.status)) return e.hle ? 'ready' : 'estimate';
     return 'requirements';
   }
   /** true — прошёл груминг, false — нет, null — закрыт (вопрос уже не стоит). */

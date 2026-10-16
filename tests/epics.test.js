@@ -58,6 +58,7 @@ test('все статусы эпиков из Jira распознаются', ()
   const { Store } = loadApp();
   const cases = {
     'Backlog': 'backlog', 'Requirements definition': 'requirements', 'Ready for HLE': 'ready_for_hle',
+    'Готов к разработке': 'ready_for_dev', 'Ready for Development': 'ready_for_dev',
     'Development': 'development', 'Готово': 'done', 'Rejected': 'rejected',
     'Ready for Deploy': 'ready_for_deploy', 'Ready for Testing': 'ready_for_testing', 'Testing': 'testing',
   };
@@ -260,6 +261,8 @@ test('готовность: груминг пройден, когда требо
   assert.equal(st('requirements'), 'requirements');
   assert.equal(st('ready_for_hle'), 'estimate');
   assert.equal(st('ready_for_hle', 8), 'ready');
+  assert.equal(st('ready_for_dev'), 'estimate');
+  assert.equal(st('ready_for_dev', 8), 'ready');
   ['development', 'ready_for_testing', 'testing', 'ready_for_deploy']
     .forEach(s => assert.equal(st(s), 'progress', s));
   assert.equal(st('done'), 'closed');
