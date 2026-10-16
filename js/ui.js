@@ -7,7 +7,7 @@ const UI = (() => {
 
   /** Локальное состояние интерфейса (не сохраняется). */
   const view = {
-    tab: 'dashboard',      // 'dashboard' | 'history' | 'epics' | 'queue'
+    tab: 'home',           // 'home' | 'dashboard' | 'history' | 'epics' | 'queue'
     query: '',             // поиск по задачам
     kind: 'all',           // 'all' | 'planned' | 'unplanned'
     assignee: null,        // null | имя в нижнем регистре | '__none__' — задачи без исполнителя
@@ -54,7 +54,15 @@ const UI = (() => {
 
   /* ═════════════ Сайдбар ═════════════ */
 
+  const TABS = ['home', 'dashboard', 'history', 'epics', 'queue'];
+  const SPRINT_TABS = ['dashboard', 'history'];
+
   function renderSidebar() {
+    // Список спринтов — навигация внутри раздела спринтов, в остальных разделах он лишний
+    const sprintTab = SPRINT_TABS.includes(view.tab);
+    $('#sprintSection').hidden = !sprintTab;
+    $('#sidebarSpacer').hidden = sprintTab;
+
     const list = Store.sortedSprints();
     const activeId = Store.get().activeSprintId;
     $('#sprintCount').textContent = list.length;
@@ -94,7 +102,13 @@ const UI = (() => {
     // Эпики живут вне спринтов: у вкладки свои заголовок и действия
     const epicsTab = view.tab === 'epics' || view.tab === 'queue';
     $('#epicActions').hidden = !epicsTab;
-    $('#sprintActions').hidden = epicsTab;
+    $('#sprintActions').hidden = !SPRINT_TABS.includes(view.tab);
+    if (view.tab === 'home') {
+      nameEl.textContent = 'Обзор';
+      const d = Store.parseDate(Store.today());
+      metaEl.innerHTML = `<span>${esc(d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }))}</span>`;
+      return;
+    }
     if (view.tab === 'queue') {
       const placed = Store.epics().filter(e => e.queue && !Store.isEpicClosed(e));
       const now = Epics.queueStats(placed, [Store.mondayOf(Store.today())])[0];
@@ -758,23 +772,137 @@ const UI = (() => {
       </tr>`;
   }
 
+
+  /* ═════════════ Обзор ═════════════ */
+
+  const HOME_ICONS = {
+    sprint:  '<svg class="ico" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9zm10 7h6v-9h-6v9zM4 20h6v-4H4v4zM14 8h6V4h-6v4z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>',
+    history: '<svg class="ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    epics:   '<svg class="ico" viewBox="0 0 24 24"><path d="M4 6h9M8 12h11M6 18h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
+    queue:   '<svg class="ico" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="13.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="3.5" y="13.5" width="17" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>',
+  };
+
+  /** Блок раздела на главной. Все блоки одного размера — ни один раздел не «главнее». */
+  function homeCard({ tab, tone, kicker, title, body }) {
+    return `
+      <button class="home-card home-card--${tone}" data-go="${tab}">
+        <span class="home-card__head">
+          <span class="home-card__icon">${HOME_ICONS[tone]}</span>
+          <span>
+            <span class="home-card__kicker">${kicker}</span>
+            <span class="home-card__title" style="display:block">${title}</span>
+          </span>
+          <span class="home-card__go">${ICONS.right}</span>
+        </span>
+        ${body}
+      </button>`;
+  }
+
+  const stat = (value, label, warn = false) =>
+    `<span class="home-card__stat ${warn ? 'is-warn' : ''}"><b>${value}</b><span>${label}</span></span>`;
+  const homeEmpty = text => `<span class="home-card__empty">${text}</span>`;
+
+  function sprintCardBody() {
+    const s = Store.activeSprint();
+    if (!s) return homeEmpty('Спринта пока нет. Создайте первый и залейте задачи массовым вводом.');
+    const m = Metrics.sprintMetrics(s);
+    const v = Metrics.inMode(m, mode());
+    const when = s.status === 'archived' ? 'закрыт'
+      : Store.today() < s.startDate ? `стартует ${Store.formatDate(s.startDate)}`
+      : `день ${m.elapsedDays} из ${m.totalDays}`;
+    return `
+      <span class="home-card__name" title="${esc(s.name)}">${esc(s.name)} · ${when}</span>
+      <span class="home-card__value"><b>${v.pct}%</b><span>${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${unitLabel()}</span></span>
+      <span class="home-card__bar"><i style="width:${v.pct}%"></i></span>
+      <span class="home-card__stats">
+        ${stat(Metrics.fmt(v.inProgress), 'в работе')}
+        ${stat(Metrics.fmt(v.unplanned), 'unplanned', v.unplanned > 0)}
+        ${stat(s.status === 'archived' ? '—' : m.daysLeft, 'дней осталось')}
+      </span>`;
+  }
+
+  function historyCardBody() {
+    const rows = Store.sortedSprints().map(s => ({ s, m: Metrics.sprintMetrics(s) }));
+    const finished = rows.filter(r => r.s.status === 'archived');
+    if (!finished.length) return homeEmpty('Закройте первый спринт — здесь появятся velocity и процент закрытия.');
+    const avg = f => finished.reduce((a, r) => a + f(r), 0) / finished.length;
+    const avgPct = avg(r => (mode() === 'points' ? r.m.pctPoints : r.m.pctTasks));
+    const avgUnplanned = avg(r => (mode() === 'points' ? r.m.unplannedSharePoints : r.m.unplannedShareTasks));
+    return `
+      <span class="home-card__name">${finished.length} ${Metrics.plural(finished.length, 'закрытый спринт', 'закрытых спринта', 'закрытых спринтов')}</span>
+      <span class="home-card__value"><b>${Metrics.fmt(avg(r => r.m.velocity))}</b><span>SP — средняя velocity</span></span>
+      <span class="home-card__stats">
+        ${stat(`${Math.round(avgPct)}%`, 'среднее закрытие')}
+        ${stat(`${Math.round(avgUnplanned)}%`, 'доля unplanned')}
+        ${stat(Metrics.fmt(finished[0].m.velocity), 'velocity последнего')}
+      </span>`;
+  }
+
+  function epicsCardBody() {
+    const all = Store.epics();
+    if (!all.length) return homeEmpty('Загрузите эпики из Jira или заведите вручную.');
+    const o = Epics.overview(all, Store.today());
+    const r = Epics.readiness(all);
+    const inWork = r.stages.find(st => st.id === 'progress').count;
+    return `
+      <span class="home-card__name">${o.total} ${Metrics.plural(o.total, 'эпик', 'эпика', 'эпиков')} всего</span>
+      <span class="home-card__value"><b>${o.open}</b><span>${Metrics.plural(o.open, 'открытый', 'открытых', 'открытых')} · HLE ${Metrics.fmt(o.hleTotal)} п/д</span></span>
+      <span class="home-card__stats">
+        ${stat(inWork, 'в работе')}
+        ${stat(r.ungroomed.count, 'не прошли груминг', r.ungroomed.count > 0)}
+        ${stat(o.overdue, 'просрочены', o.overdue > 0)}
+      </span>`;
+  }
+
+  function queueCardBody() {
+    const placed = Store.epics().filter(e => e.queue && !Store.isEpicClosed(e));
+    if (!placed.length) return homeEmpty('Расставьте эпики по неделям — увидите загрузку команды наперёд.');
+    const thisWeek = Store.mondayOf(Store.today());
+    const [now, next] = Epics.queueStats(placed, [thisWeek, Store.addDays(thisWeek, 7)]);
+    return `
+      <span class="home-card__name">На этой неделе</span>
+      <span class="home-card__value"><b>${now.count}</b><span>${Metrics.plural(now.count, 'эпик', 'эпика', 'эпиков')} в работе · ~${Metrics.fmt(now.people)} чел.</span></span>
+      <span class="home-card__stats">
+        ${stat(placed.length, 'в очереди')}
+        ${stat(next.count, 'на след. неделе')}
+        ${stat(now.ungroomed, 'без груминга', now.ungroomed > 0)}
+      </span>`;
+  }
+
+  function renderHome() {
+    $('#homeBody').innerHTML = `<div class="home">
+      ${homeCard({ tab: 'dashboard', tone: 'sprint', kicker: 'Спринты', title: 'Текущий спринт', body: sprintCardBody() })}
+      ${homeCard({ tab: 'history', tone: 'history', kicker: 'Спринты', title: 'История', body: historyCardBody() })}
+      ${homeCard({ tab: 'epics', tone: 'epics', kicker: 'Эпики', title: 'Планирование', body: epicsCardBody() })}
+      ${homeCard({ tab: 'queue', tone: 'queue', kicker: 'Эпики', title: 'Очередь', body: queueCardBody() })}
+    </div>`;
+  }
+
   /* ═════════════ Переключение вкладок и общий рендер ═════════════ */
 
+  /** Вкладка из адреса (#epics) — чтобы перезагрузка и «назад» возвращали в тот же раздел. */
+  const tabFromHash = () => {
+    const t = location.hash.replace(/^#\/?/, '');
+    return TABS.includes(t) ? t : 'home';
+  };
+
   function setTab(tab) {
+    if (!TABS.includes(tab)) tab = 'home';
     view.tab = tab;
+    const hash = tab === 'home' ? '' : `#${tab}`;
+    if (location.hash !== hash) history.pushState(null, '', hash || location.pathname + location.search);
     document.querySelectorAll('.nav__item').forEach(b =>
       b.classList.toggle('is-active', b.dataset.view === tab));
-    $('#view-dashboard').hidden = tab !== 'dashboard';
-    $('#view-history').hidden = tab !== 'history';
-    $('#view-epics').hidden = tab !== 'epics';
-    $('#view-queue').hidden = tab !== 'queue';
+    TABS.forEach(t => { $(`#view-${t}`).hidden = t !== tab; });
+    window.scrollTo(0, 0);
     render();
   }
 
   function render() {
     renderSidebar();
     renderTopbar();
-    if (view.tab === 'dashboard') renderDashboard();
+    if (view.tab === 'home') renderHome();
+    else if (view.tab === 'dashboard') renderDashboard();
     else if (view.tab === 'epics') Roadmap.render();
     else if (view.tab === 'queue') Queue.render();
     else renderHistory();
@@ -803,5 +931,5 @@ const UI = (() => {
     return `<span class="tag prio prio--${p.id}" title="Приоритет: ${p.label}">${p.label}</span>`;
   }
 
-  return { view, render, renderBoard, renderDashboard, setTab, toast, esc, filterTasks, priorityTag };
+  return { view, render, renderBoard, renderDashboard, setTab, tabFromHash, toast, esc, filterTasks, priorityTag };
 })();

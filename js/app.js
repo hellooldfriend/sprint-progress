@@ -156,7 +156,8 @@
       return;
     }
 
-    if (form.dataset.editId) {
+    const editing = !!form.dataset.editId;
+    if (editing) {
       Store.updateSprint(form.dataset.editId, data);
       UI.toast('Спринт обновлён', 'ok');
     } else {
@@ -164,7 +165,9 @@
       UI.toast('Спринт создан — добавьте задачи', 'ok');
     }
     closeModal('sprintModal');
-    UI.render();
+    // Новый спринт открываем сразу, откуда бы его ни создали
+    if (editing) UI.render();
+    else UI.setTab('dashboard');
   });
 
   /* ═════════════ Задачи ═════════════ */
@@ -496,6 +499,15 @@
     document.body.classList.remove('nav-open');
     UI.setTab(btn.dataset.view);
   }));
+
+  // Обзор: блок раздела ведёт в раздел
+  $('#homeBody').addEventListener('click', e => {
+    const card = e.target.closest('[data-go]');
+    if (card) UI.setTab(card.dataset.go);
+  });
+
+  // Кнопки «назад/вперёд» браузера переключают разделы
+  window.addEventListener('popstate', () => UI.setTab(UI.tabFromHash()));
 
   // История: открыть спринт
   $('#historyBody').addEventListener('click', e => {
@@ -1661,7 +1673,7 @@
       });
       if (!ok) return;
       Store.replaceState(next);
-      UI.setTab('dashboard');
+      UI.setTab('home');
       UI.toast('Данные импортированы', 'ok');
     } catch (err) {
       console.error(err);
@@ -1799,5 +1811,5 @@
   fillStatusSelects();
   document.body.classList.toggle('sidebar-collapsed', !!Store.get().settings.sidebarCollapsed);
   syncSidebarButton();
-  UI.render();
+  UI.setTab(UI.tabFromHash());
 })();

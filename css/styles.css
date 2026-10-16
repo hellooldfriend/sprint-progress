@@ -158,6 +158,15 @@ body.sidebar-collapsed .sidebar {
 }
 .nav__item:hover { background: var(--surface-2); color: var(--text); }
 .nav__item.is-active { background: var(--accent-soft); color: #c4b5fd; }
+.nav__group {
+  font-size: 11px; font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--faint); padding: 14px 10px 4px;
+}
+/* Пока списка спринтов нет, футер всё равно прижат к низу */
+.sidebar__spacer { flex: 1; }
+.icon-btn--xs { width: 24px; height: 24px; border-radius: 7px; }
+.icon-btn--xs .ico { width: 14px; height: 14px; }
+.sidebar__title .sidebar__count { margin-left: 6px; }
 
 /* Секции сайдбара */
 .sidebar__section { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
@@ -322,6 +331,42 @@ body.sidebar-collapsed .sidebar {
   font-size: 11px; font-weight: 600; letter-spacing: .09em;
   text-transform: uppercase; color: var(--faint);
 }
+
+/* ───────────── Обзор: равные блоки разделов ───────────── */
+.home { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.home-card {
+  text-align: left; width: 100%;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 20px;
+  display: flex; flex-direction: column; gap: 16px; min-height: 236px;
+  transition: border-color var(--t), transform var(--t);
+}
+.home-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.home-card__head { display: flex; align-items: center; gap: 10px; }
+.home-card__icon {
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
+  display: grid; place-items: center; color: var(--tone); background: var(--tone-soft);
+}
+.home-card__title { font-size: 14px; font-weight: 600; }
+.home-card__kicker { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
+.home-card__go { margin-left: auto; color: var(--faint); transition: color var(--t), transform var(--t); }
+.home-card:hover .home-card__go { color: var(--text); transform: translateX(2px); }
+.home-card__value { display: flex; align-items: baseline; gap: 8px; }
+.home-card__value b { font-size: 32px; font-weight: 620; letter-spacing: -.035em; line-height: 1; }
+.home-card__value span { font-size: 12.5px; color: var(--faint); }
+.home-card__name { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-card__bar { height: 4px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.home-card__bar > i { display: block; height: 100%; border-radius: 99px; background: var(--tone); }
+.home-card__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: auto; }
+.home-card__stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.home-card__stat b { font-size: 15px; font-weight: 600; }
+.home-card__stat span { font-size: 11.5px; color: var(--faint); }
+.home-card__stat.is-warn b { color: #fbbf24; }
+.home-card__empty { font-size: 13px; color: var(--muted); line-height: 1.55; margin-top: auto; }
+.home-card--sprint  { --tone: var(--accent); --tone-soft: var(--accent-soft); }
+.home-card--history { --tone: var(--green);  --tone-soft: var(--green-soft); }
+.home-card--epics   { --tone: var(--blue);   --tone-soft: var(--blue-soft); }
+.home-card--queue   { --tone: var(--cyan);   --tone-soft: var(--cyan-soft); }
 
 /* Баннер архива */
 .banner {
@@ -1154,6 +1199,8 @@ body.is-sort-blocked, body.is-sort-blocked * { cursor: not-allowed !important; }
   .topbar__actions { width: 100%; justify-content: flex-start; overflow-x: auto; }
   .view { padding: 18px 16px 56px; }
   .split { grid-template-columns: 1fr; }
+  .home { grid-template-columns: 1fr; }
+  .home-card { min-height: 0; }
   .hero__pct { font-size: 42px; }
 }
 

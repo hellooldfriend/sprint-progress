@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sprint Progress — трекер двухнедельных спринтов</title>
+  <title>Sprint Progress — спринты и эпики</title>
   <meta name="description" content="Минималистичный локальный трекер спринтов: метрики, burn-down, канбан. Без бэкенда и без Jira." />
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%238b5cf6'/><path d='M9 20l5-8 4 5 5-8' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
@@ -20,27 +20,30 @@
       </div>
       <div class="brand__text">
         <span class="brand__name">Sprint Progress</span>
-        <span class="brand__sub">Локальный трекер спринтов</span>
+        <span class="brand__sub">Спринты и эпики</span>
       </div>
     </div>
 
-    <button class="btn btn--primary btn--block" id="btnNewSprint">
-      <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      Новый спринт
-    </button>
-
     <nav class="nav">
-      <button class="nav__item is-active" data-view="dashboard">
+      <button class="nav__item is-active" data-view="home">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8.5a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19.5z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>
+        Обзор
+      </button>
+
+      <div class="nav__group">Спринты</div>
+      <button class="nav__item" data-view="dashboard">
         <svg class="ico" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9zm10 7h6v-9h-6v9zM4 20h6v-4H4v4zM14 8h6V4h-6v4z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>
-        Дашборд
+        Текущий спринт
       </button>
       <button class="nav__item" data-view="history">
         <svg class="ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         История
       </button>
+
+      <div class="nav__group">Эпики</div>
       <button class="nav__item" data-view="epics">
         <svg class="ico" viewBox="0 0 24 24"><path d="M4 6h9M8 12h11M6 18h8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-        Эпики
+        Планирование
       </button>
       <button class="nav__item" data-view="queue">
         <svg class="ico" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="13.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="3.5" y="13.5" width="17" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
@@ -48,13 +51,17 @@
       </button>
     </nav>
 
-    <div class="sidebar__section">
+    <!-- Список спринтов нужен только в разделе спринтов -->
+    <div class="sidebar__section" id="sprintSection" hidden>
       <div class="sidebar__title">
-        <span>Спринты</span>
-        <span class="sidebar__count" id="sprintCount">0</span>
+        <span>Спринты <span class="sidebar__count" id="sprintCount">0</span></span>
+        <button class="icon-btn icon-btn--xs" id="btnNewSprint" title="Новый спринт" aria-label="Новый спринт">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
       </div>
       <div class="sprint-list" id="sprintList"><!-- JS --></div>
     </div>
+    <div class="sidebar__spacer" id="sidebarSpacer"></div>
 
     <div class="sidebar__footer">
       <div class="sidebar__title"><span>Данные</span></div>
@@ -151,8 +158,13 @@
       </div>
     </header>
 
+    <!-- ───────── Обзор ───────── -->
+    <section class="view" id="view-home">
+      <div id="homeBody"><!-- JS --></div>
+    </section>
+
     <!-- ───────── Дашборд ───────── -->
-    <section class="view" id="view-dashboard">
+    <section class="view" id="view-dashboard" hidden>
       <div class="banner banner--archive" id="archiveBanner" hidden>
         <svg class="ico" viewBox="0 0 24 24"><path d="M3 7h18v3H3zM5 10v9h14v-9M10 14h4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Спринт закрыт — режим просмотра. Чтобы менять задачи, верните спринт в работу.</span>
