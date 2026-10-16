@@ -421,6 +421,7 @@ body.sidebar-collapsed .sidebar {
 /* ── Канбан ── */
 .board-toolbar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 16px;
 }
 .search {
   position: relative; flex: 1; min-width: 180px; max-width: 320px;
