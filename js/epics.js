@@ -265,6 +265,15 @@ const Epics = (() => {
   }
 
   /**
+   * Эпики, у которых есть и место в очереди, и Planned-даты, но они не совпадают.
+   * Эпик только в очереди или только с датами — не расхождение, а просто ещё не перенесён.
+   */
+  function planMismatch(list) {
+    return list.filter(e => e.queue && isScheduled(e) && !Store.isEpicClosed(e) &&
+      (e.plannedStart !== e.queue.week || e.plannedEnd !== Store.addDays(queueLastWeek(e), 4)));
+  }
+
+  /**
    * Обратный перенос: Planned Start / End → очередь. Неделя — понедельник недели старта,
    * длина — сколько календарных недель задевает окно. Так круг «очередь → Гант → очередь»
    * ничего не сдвигает: пн–пт трёх недель снова становятся тремя неделями.
@@ -285,7 +294,7 @@ const Epics = (() => {
   }
 
   return {
-    defaultSpan, queueLastWeek, inQueueWeek, queueWeeks, queueStats, queueToPlan, planToQueue,
+    defaultSpan, queueLastWeek, inQueueWeek, queueWeeks, queueStats, queueToPlan, planToQueue, planMismatch,
     DEFAULT_WINDOW_DAYS,
     STAGES, stageById, stage, isGroomed, READINESS_GROUPS, readinessKey, readiness,
     isScheduled, nextWorkingDay, windowFromHle, windowDays, intensity, weekStart,

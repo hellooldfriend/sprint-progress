@@ -368,6 +368,39 @@ body.sidebar-collapsed .sidebar {
 .home-card--epics   { --tone: var(--blue);   --tone-soft: var(--blue-soft); }
 .home-card--queue   { --tone: var(--cyan);   --tone-soft: var(--cyan-soft); }
 
+/* «Требует внимания» */
+.attn {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 2px; margin-bottom: 16px;
+}
+.attn__head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+.attn__item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 11px 0; border-top: 1px solid var(--border);
+}
+.attn__item--err  { --lvl: var(--red); }
+.attn__item--warn { --lvl: var(--amber); }
+.attn__item--info { --lvl: var(--blue); }
+.attn__dot { width: 8px; height: 8px; border-radius: 99px; flex: none; margin-top: 6px; background: var(--lvl); }
+.attn__dot--ok { background: var(--green); margin-top: 0; }
+.attn__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.attn__text { font-size: 13.5px; line-height: 1.5; }
+.attn__section {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--faint); margin-right: 8px;
+}
+.attn__epics { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.attn__epic {
+  font-size: 12px; color: var(--muted); padding: 3px 8px; border-radius: 7px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color var(--t), border-color var(--t);
+}
+.attn__epic:hover { color: var(--text); border-color: var(--border-strong); }
+.attn__more { font-size: 12px; color: var(--faint); }
+.attn__actions { display: flex; gap: 6px; flex: none; }
+.attn--ok { flex-direction: row; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); padding: 12px 18px; }
+
 /* Баннер архива */
 .banner {
   display: flex; align-items: center; gap: 10px;
@@ -1200,6 +1233,8 @@ body.is-sort-blocked, body.is-sort-blocked * { cursor: not-allowed !important; }
   .view { padding: 18px 16px 56px; }
   .split { grid-template-columns: 1fr; }
   .home { grid-template-columns: 1fr; }
+  .attn__item { flex-wrap: wrap; }
+  .attn__actions { padding-left: 20px; }
   .home-card { min-height: 0; }
   .hero__pct { font-size: 42px; }
 }

@@ -502,6 +502,10 @@
 
   // Обзор: блок раздела ведёт в раздел
   $('#homeBody').addEventListener('click', e => {
+    const epicBtn = e.target.closest('[data-open-epic]');
+    if (epicBtn) return openEpicModal(Store.epicById(epicBtn.dataset.openEpic));
+    const sync = e.target.closest('[data-sync]');
+    if (sync) return sync.dataset.sync === 'queue-to-plan' ? queueToPlan() : planToQueue();
     const card = e.target.closest('[data-go]');
     if (card) UI.setTab(card.dataset.go);
   });

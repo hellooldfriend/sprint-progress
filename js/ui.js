@@ -869,8 +869,51 @@ const UI = (() => {
       </span>`;
   }
 
+  const SECTION_LABEL = { sprint: 'Спринт', epics: 'Эпики', queue: 'Очередь' };
+  const ATTN_EPICS_SHOWN = 4;
+
+  /** «Требует внимания»: всё срочное со всех разделов, с переходом туда, где это чинить. */
+  function attentionSection() {
+    const items = Attention.collect({
+      sprint: Store.activeSprint(), epics: Store.epics(), today: Store.today(), mode: mode(),
+    });
+    if (!items.length) {
+      return `<div class="attn attn--ok"><span class="attn__dot attn__dot--ok"></span>Срочного нет — всё по плану</div>`;
+    }
+    const epicChips = list => {
+      if (!list || !list.length) return '';
+      const shown = list.slice(0, ATTN_EPICS_SHOWN).map(e => {
+        const due = e.plannedEnd ? ` · ${Store.formatDate(e.plannedEnd)}` : '';
+        return `<button class="attn__epic" data-open-epic="${e.id}" title="${esc(e.title)}">${esc(e.key || e.title)}${due}</button>`;
+      }).join('');
+      const more = list.length > ATTN_EPICS_SHOWN ? `<span class="attn__more">и ещё ${list.length - ATTN_EPICS_SHOWN}</span>` : '';
+      return `<div class="attn__epics">${shown}${more}</div>`;
+    };
+    const actions = it => it.sync
+      ? `<button class="btn btn--ghost btn--sm" data-sync="queue-to-plan" title="Planned-даты возьмут из очереди">Очередь → даты</button>
+         <button class="btn btn--ghost btn--sm" data-sync="plan-to-queue" title="Очередь переставят по Planned-датам">Даты → очередь</button>`
+      : `<button class="btn btn--ghost btn--sm" data-go="${it.go}">Открыть</button>`;
+
+    return `
+      <section class="attn">
+        <div class="attn__head">
+          <span class="section-title">Требует внимания</span>
+          <span class="sidebar__count">${items.length}</span>
+        </div>
+        ${items.map(it => `
+          <div class="attn__item attn__item--${it.level}">
+            <span class="attn__dot"></span>
+            <div class="attn__main">
+              <div class="attn__text"><span class="attn__section">${SECTION_LABEL[it.section]}</span>${esc(it.text)}</div>
+              ${epicChips(it.epics)}
+            </div>
+            <div class="attn__actions">${actions(it)}</div>
+          </div>`).join('')}
+      </section>`;
+  }
+
   function renderHome() {
-    $('#homeBody').innerHTML = `<div class="home">
+    $('#homeBody').innerHTML = `${attentionSection()}<div class="home">
       ${homeCard({ tab: 'dashboard', tone: 'sprint', kicker: 'Спринты', title: 'Текущий спринт', body: sprintCardBody() })}
       ${homeCard({ tab: 'history', tone: 'history', kicker: 'Спринты', title: 'История', body: historyCardBody() })}
       ${homeCard({ tab: 'epics', tone: 'epics', kicker: 'Эпики', title: 'Планирование', body: epicsCardBody() })}
