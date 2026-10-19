@@ -33,7 +33,7 @@ const Attention = (() => {
       });
     }
 
-    const longRunners = s.tasks.filter(t => (t.carryCount || 0) >= 2 && t.status !== 'done' && !t.dropped);
+    const longRunners = s.tasks.filter(t => (t.carryCount || 0) >= 2 && !Store.isClosedStatus(t.status) && !t.dropped);
     if (longRunners.length) {
       const n = longRunners.length;
       out.push({

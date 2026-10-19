@@ -204,10 +204,10 @@
     const form = $('#taskForm');
     $('#dropReasonField').hidden = !form.dropped.checked;
     // Закрытая задача не может быть снятой — блокируем переключатель, чтобы не спорил с метриками
-    const isDone = form.status.value === 'done';
-    form.dropped.disabled = isDone;
-    if (isDone) form.dropped.checked = false;
-    $('.switch--drop').classList.toggle('is-disabled', isDone);
+    const isClosed = Store.isClosedStatus(form.status.value);
+    form.dropped.disabled = isClosed;
+    if (isClosed) form.dropped.checked = false;
+    $('.switch--drop').classList.toggle('is-disabled', isClosed);
   }
 
   $('#taskForm').addEventListener('change', e => {
@@ -895,6 +895,7 @@
     Store.setTaskStatus(s.id, id, col.dataset.status);
     UI.render();
     if (col.dataset.status === 'done') UI.toast('Задача закрыта 🎉', 'ok');
+    if (col.dataset.status === 'rejected') UI.toast('Задача отклонена — ушла из remaining work', 'info');
   });
 
   /* ═════════════ Эпики ═════════════ */

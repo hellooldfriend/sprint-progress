@@ -307,3 +307,22 @@ test('человеко-дни нормализуются и переживают
   assert.equal(state.sprints[1].capacity, null, 'нечисло отбрасывается');
   assert.equal(state.sprints[1].spent, null, 'отрицательное отбрасывается');
 });
+
+test('Rejected: считается отдельно, не входит в remaining, velocity и «в работе»', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, { tasks: [
+    { key: 'A-1', points: 5, status: 'done' },
+    { key: 'A-2', points: 3, status: 'rejected' },
+    { key: 'A-3', points: 2, status: 'rejected' },
+    { key: 'A-4', points: 8, status: 'progress' },
+  ]});
+  const m = app.Metrics.sprintMetrics(sprint);
+  assert.equal(m.totalPoints, 18, 'в объёме обязательства остаётся');
+  assert.equal(m.rejectedTasks, 2);
+  assert.equal(m.rejectedPoints, 5);
+  assert.equal(m.byStatus.rejected.count, 2, 'колонка доски видит свои задачи');
+  assert.equal(m.remainingPoints, 8);
+  assert.equal(m.velocity, 5);
+  assert.equal(m.inProgressPoints, 8);
+  assert.equal(app.Metrics.inMode(m, 'tasks').rejected, 2);
+});

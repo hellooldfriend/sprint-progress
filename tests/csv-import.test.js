@@ -137,9 +137,9 @@ test('весь набор статусов команды разбирается
 
   assert.deepEqual(res.unknownStatuses, [], 'сопоставлять руками нечего');
   assert.deepEqual(res.items.map(i => i.status),
-    ['progress', 'ready_to_test', 'backlog', 'backlog', 'done', 'deploy', 'review', 'todo']);
+    ['progress', 'ready_to_test', 'rejected', 'backlog', 'done', 'deploy', 'review', 'todo']);
   assert.deepEqual(res.items.filter(i => i.dropped).map(i => [i.key, i.dropReason]),
-    [['DEV-3', 'cancelled'], ['DEV-4', 'blocked']]);
+    [['DEV-4', 'blocked']]);
 });
 
 test('Rejected и Hold уходят из remaining work, а не копятся в нём', () => {
@@ -158,9 +158,12 @@ test('Rejected и Hold уходят из remaining work, а не копятся 
   const m = Metrics.sprintMetrics(Store.sprintById(sprint.id));
   assert.equal(m.totalPoints, 20, 'объём обязательства не меняется');
   assert.equal(m.donePoints, 5);
-  assert.equal(m.droppedPoints, 7, 'Rejected и Hold сняты');
+  assert.equal(m.droppedPoints, 2, 'Hold снят');
+  assert.equal(m.rejectedPoints, 5, 'Rejected считается отдельно');
+  assert.equal(m.rejectedTasks, 1);
   assert.equal(m.remainingPoints, 8, 'в остатке только то, что реально делается');
-  assert.deepEqual(m.dropByReason.map(r => [r.id, r.points]), [['cancelled', 5], ['blocked', 2]]);
+  assert.equal(m.velocity, 5, 'Rejected не надувает velocity');
+  assert.deepEqual(m.dropByReason.map(r => [r.id, r.points]), [['blocked', 2]]);
 });
 
 test('повторный импорт ставит снятие, но обратно его не снимает', () => {
@@ -174,9 +177,9 @@ test('повторный импорт ставит снятие, но обрат
   };
 
   assert.equal(load('Development').dropped, false);
-  const rejected = load('Rejected');
-  assert.equal(rejected.dropped, true, 'трекер сказал прямо — снимаем');
-  assert.equal(rejected.dropReason, 'cancelled');
+  const cancelled = load('Cancelled');
+  assert.equal(cancelled.dropped, true, 'трекер сказал прямо — снимаем');
+  assert.equal(cancelled.dropReason, 'cancelled');
 
   // Вернулась в работу в Jira: колонка обновится, но решение «не закроем» останется за тимлидом
   const back = load('Development');

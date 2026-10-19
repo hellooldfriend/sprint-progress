@@ -170,3 +170,30 @@ test('удалить все задачи спринта — спринт ост�
   assert.equal(Store.clearSprintTasks(a.id), 0);
   assert.equal(Store.clearSprintTasks('нет такого'), 0);
 });
+
+test('Rejected: стрелки его не трогают, снять отклонённую нельзя, переносить незачем', () => {
+  const app = loadApp();
+  const { Store } = app;
+  const sprint = makeSprint(app, { tasks: [
+    { key: 'A-1', status: 'done' },
+    { key: 'A-2', status: 'rejected' },
+    { key: 'A-3', status: 'todo', dropped: true, dropReason: 'carry' },
+  ]});
+  const byKey = key => Store.sprintById(sprint.id).tasks.find(t => t.key === key);
+  const [done, rejected, dropped] = ['A-1', 'A-2', 'A-3'].map(byKey);
+
+  Store.shiftTaskStatus(sprint.id, done.id, 1);
+  assert.equal(done.status, 'done', 'из Done стрелкой вправо в Rejected не попасть');
+  assert.equal(Store.shiftTaskStatus(sprint.id, rejected.id, -1), null);
+  assert.equal(rejected.status, 'rejected');
+  assert.ok(rejected.rejectedAt, 'день отклонения запомнен');
+
+  Store.setTaskStatus(sprint.id, dropped.id, 'rejected');
+  assert.equal(dropped.dropped, false, 'отклонённая задача не может быть ещё и снятой');
+  assert.ok(dropped.rejectedAt);
+
+  Store.setTaskStatus(sprint.id, dropped.id, 'todo');
+  assert.equal(dropped.rejectedAt, null, 'вернули в работу — дата отклонения сброшена');
+
+  assert.ok(!Store.carryCandidates(sprint.id).some(t => t.id === rejected.id));
+});

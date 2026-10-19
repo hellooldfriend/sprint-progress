@@ -217,9 +217,11 @@ const UI = (() => {
           <div class="hero__stat"><b style="color:var(--green)">${Metrics.fmt(v.done)}</b><span>Сделано</span></div>
           ${archived
             ? `<div class="hero__stat"><b style="color:${v.notDone ? 'var(--amber)' : 'var(--muted)'}">${Metrics.fmt(v.notDone)}</b><span>Не сделано</span></div>
-               ${v.carriedOut > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.carriedOut)}</b><span>Перенесено</span></div>` : ''}`
+               ${v.carriedOut > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.carriedOut)}</b><span>Перенесено</span></div>` : ''}
+               ${v.rejected > 0 ? `<div class="hero__stat"><b style="color:var(--red)">${Metrics.fmt(v.rejected)}</b><span>Rejected</span></div>` : ''}`
             : `<div class="hero__stat"><b>${Metrics.fmt(v.remaining)}</b><span>Осталось</span></div>
                ${v.dropped > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.dropped)}</b><span>Снято</span></div>` : ''}
+               ${v.rejected > 0 ? `<div class="hero__stat"><b style="color:var(--red)">${Metrics.fmt(v.rejected)}</b><span>Rejected</span></div>` : ''}
                <div class="hero__stat"><b>${m.daysLeft}</b><span>${Metrics.plural(m.daysLeft, 'рабочий день', 'рабочих дня', 'рабочих дней')} до конца</span></div>`}
         </div>
       </div>
@@ -266,7 +268,12 @@ const UI = (() => {
   function statusHint(m, v) {
     if (m.isEmpty) return 'Добавьте задачи — метрики появятся сразу';
     if (v.pct >= 100) return '🎉 Все задачи закрыты';
-    if (v.dropped > 0 && v.remaining === 0) return `Всё, что не сняли, закрыто · снято ${Metrics.fmt(v.dropped)} ${v.unit}`;
+    if ((v.dropped > 0 || v.rejected > 0) && v.remaining === 0) {
+      const parts = [];
+      if (v.dropped > 0) parts.push(`снято ${Metrics.fmt(v.dropped)} ${v.unit}`);
+      if (v.rejected > 0) parts.push(`rejected ${Metrics.fmt(v.rejected)} ${v.unit}`);
+      return `Всё остальное закрыто · ${parts.join(', ')}`;
+    }
     const delta = v.pct - m.timePct;
     if (m.daysLeft === 0) return 'Спринт завершён по времени';
     if (delta >= 5) return `Идём с опережением на ${Math.round(delta)} п.п.`;
@@ -343,6 +350,12 @@ const UI = (() => {
       ${v.dropped > 0 ? card({
         dot: 'dot--muted', title: archived ? 'Сняли со спринта' : 'Не закроем', value: Metrics.fmt(v.dropped), unit: unitFor(v.dropped),
         foot: `${v.droppedShare}% объёма спринта · ${m.dropByReason.map(r => `${r.short} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(' · ')}`,
+      }) : ''}
+      ${v.rejected > 0 ? card({
+        dot: 'dot--red', title: 'Rejected', value: Metrics.fmt(v.rejected), unit: unitFor(v.rejected),
+        foot: `${v.rejectedShare}% объёма спринта · ` + (mode() === 'points'
+          ? `${m.rejectedTasks} ${Metrics.plural(m.rejectedTasks, 'задача', 'задачи', 'задач')}`
+          : `${Metrics.fmt(m.rejectedPoints)} SP`) + ' — не в remaining и не в velocity',
       }) : ''}
       ${card({
         dot: 'dot--muted', title: archived ? 'Средний темп' : 'Темп', value: Metrics.fmt(v.pace), unit: `${v.unit}/день`,
@@ -577,15 +590,18 @@ const UI = (() => {
       testing: 'QA отдыхает',
       deploy: 'Нечего катить',
       done: 'Пока ничего не закрыто',
+      rejected: 'Ничего не отклонили',
     };
     return texts[statusId] || 'Пусто';
   }
 
   function taskHTML(t, readonly) {
-    const idx = Store.STATUS_IDS.indexOf(t.status);
-    const isFirst = idx === 0, isLast = idx === Store.STATUS_IDS.length - 1;
+    // Rejected стрелками не двигается: из него и в него — перетаскиванием или через редактирование
+    const isRejected = t.status === 'rejected';
+    const idx = Store.WORKFLOW_IDS.indexOf(t.status);
+    const isFirst = isRejected || idx === 0, isLast = isRejected || idx === Store.WORKFLOW_IDS.length - 1;
     return `
-    <article class="task ${t.unplanned ? 'is-unplanned' : ''} ${t.status === 'done' ? 'is-done' : ''} ${t.dropped ? 'is-dropped' : ''}"
+    <article class="task ${t.unplanned ? 'is-unplanned' : ''} ${t.status === 'done' ? 'is-done' : ''} ${isRejected ? 'is-rejected' : ''} ${t.dropped ? 'is-dropped' : ''}"
              data-task="${t.id}" ${readonly ? '' : 'draggable="true"'}>
       ${t.key ? `<div class="task__key">${taskKeyHTML(t)}</div>` : ''}
       <div class="task__title">${esc(t.title)}</div>
@@ -605,7 +621,7 @@ const UI = (() => {
           <button class="task__btn" data-act="next" ${isLast ? 'disabled' : ''} title="Вперёд по статусу">${ICONS.right}</button>
           <button class="task__btn ${t.dropped ? 'is-on' : ''}" data-act="drop"
                   title="${t.dropped ? 'Вернуть в спринт' : 'Не закроем в этом спринте'}"
-                  ${t.status === 'done' ? 'disabled' : ''}>${ICONS.drop}</button>
+                  ${Store.isClosedStatus(t.status) ? 'disabled' : ''}>${ICONS.drop}</button>
           <button class="task__btn" data-act="edit" title="Редактировать">${ICONS.edit}</button>
           <button class="task__btn task__btn--del" data-act="delete" title="Удалить">${ICONS.trash}</button>
         </div>
@@ -765,7 +781,8 @@ const UI = (() => {
           ${v.dropped
             ? `${Metrics.fmt(v.dropped)}<span class="t-sub"> · ${v.droppedShare}%</span>
                <div class="t-sub">${m.dropByReason.map(r => `${r.short.toLowerCase()} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(', ')}</div>`
-            : '<span class="t-sub">—</span>'}
+            : v.rejected ? '' : '<span class="t-sub">—</span>'}
+          ${v.rejected ? `<div class="t-sub" style="color:var(--red)">rejected ${Metrics.fmt(v.rejected)} · ${v.rejectedShare}%</div>` : ''}
         </td>
         <td class="t-num">${Metrics.fmt(m.velocity)}<span class="t-sub"> SP</span></td>
         <td style="text-align:right"><button class="btn btn--ghost btn--sm" data-open-sprint="${s.id}">Открыть</button></td>

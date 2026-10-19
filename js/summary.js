@@ -103,6 +103,9 @@ const Summary = (() => {
       cancelled.forEach(r => {
         tail.push(`${r.verb} ${byPoints ? `${n(r.points)} SP` : `${r.count} ${tasksWord(r.count)}`}`);
       });
+      if (m.rejectedTasks) {
+        tail.push(`rejected ${byPoints ? `${n(m.rejectedPoints)} SP` : `${m.rejectedTasks} ${tasksWord(m.rejectedTasks)}`}`);
+      }
       lines.push(m.notDoneTasks
         ? `📤 Не сделано ${notDone}${tail.length ? ': ' + tail.join(', ') : ''}`
         : '🎉 Закрыли всё, что взяли');
@@ -114,6 +117,10 @@ const Summary = (() => {
       if (m.droppedTasks) {
         const dropped = byPoints ? `${n(m.droppedPoints)} SP` : `${m.droppedTasks} ${tasksWord(m.droppedTasks)}`;
         lines.push(`🚫 Снято со спринта ${dropped}: ${m.dropByReason.map(r => r.verb).join(', ')}`);
+      }
+      if (m.rejectedTasks) {
+        const rejected = byPoints ? `${n(m.rejectedPoints)} SP` : `${m.rejectedTasks} ${tasksWord(m.rejectedTasks)}`;
+        lines.push(`⛔ Rejected ${rejected}`);
       }
       if (options.withPace) lines.push(paceLine(m, byPoints));
     }
@@ -184,8 +191,8 @@ const Summary = (() => {
     const out = [];
     const live = sprint.tasks.filter(t => !t.dropped);
 
-    // Порядок обратный доске: сперва то, что ближе к готовности
-    [...Store.STATUS_IDS].reverse().forEach(statusId => {
+    // Порядок обратный доске: сперва то, что ближе к готовности, Rejected — в конце, рядом со снятым
+    [...Store.WORKFLOW_IDS].reverse().concat('rejected').forEach(statusId => {
       const group = live.filter(t => t.status === statusId);
       if (!group.length) return;
       const status = Store.STATUSES.find(s => s.id === statusId);
@@ -209,7 +216,8 @@ const Summary = (() => {
   function resultList(sprint, byPoints) {
     const out = [];
     const done = sprint.tasks.filter(t => t.status === 'done');
-    const rest = sprint.tasks.filter(t => t.status !== 'done');
+    const rejected = sprint.tasks.filter(t => t.status === 'rejected');
+    const rest = sprint.tasks.filter(t => !Store.isClosedStatus(t.status));
 
     if (done.length) {
       out.push(groupHead('✅', 'Сделано', done, byPoints) + ':');
@@ -226,6 +234,11 @@ const Summary = (() => {
             : Store.STATUSES.find(s => s.id === t.status).label;
         out.push(taskLine(t, byPoints, [mark]));
       });
+    }
+    if (rejected.length) {
+      if (out.length) out.push('');
+      out.push(groupHead('⛔', 'Rejected', rejected, byPoints) + ':');
+      rejected.forEach(t => out.push(taskLine(t, byPoints)));
     }
     return out;
   }

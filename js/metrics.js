@@ -26,6 +26,8 @@ const Metrics = (() => {
     const done = tasks.filter(t => t.status === 'done');
     // Снятые со спринта: в объём обязательства входят, в remaining и в темп — нет
     const dropped = tasks.filter(t => t.dropped);
+    // Отклонённые (Rejected): так же в объёме, но не в remaining и не в velocity
+    const rejected = tasks.filter(t => t.status === 'rejected');
     // Приехали из прошлых спринтов: это долг, а не свежевзятая работа
     const carried = tasks.filter(t => (t.carryCount || 0) > 0);
     // Уехали дальше: для закрытого спринта это ответ на вопрос «куда делось несделанное»
@@ -97,6 +99,8 @@ const Metrics = (() => {
 
     const droppedTasks = dropped.length;
     const droppedPoints = sum(dropped, 'points');
+    const rejectedTasks = rejected.length;
+    const rejectedPoints = sum(rejected, 'points');
 
     // Не сделано = всё, что не в Done, включая снятое. Для закрытого спринта это главная цифра
     const notDoneTasks = totalTasks - doneTasks;
@@ -113,9 +117,9 @@ const Metrics = (() => {
       }, {})
     );
 
-    // Реально осталось работы = всё минус закрытое минус снятое
-    const remainingTasks = totalTasks - doneTasks - droppedTasks;
-    const remainingPoints = totalPoints - donePoints - droppedPoints;
+    // Реально осталось работы = всё минус закрытое, снятое и отклонённое
+    const remainingTasks = totalTasks - doneTasks - droppedTasks - rejectedTasks;
+    const remainingPoints = totalPoints - donePoints - droppedPoints - rejectedPoints;
 
     // Разбивка снятого по причинам — для подписи на карточке и разговора на ретро
     const dropByReason = Store.DROP_REASONS
@@ -138,6 +142,9 @@ const Metrics = (() => {
       unplannedTasks: unplanned.length, unplannedPoints: sum(unplanned, 'points'),
       doneTasks, donePoints,
       droppedTasks, droppedPoints, dropByReason,
+      rejectedTasks, rejectedPoints,
+      rejectedShareTasks: pct(rejectedTasks, totalTasks),
+      rejectedSharePoints: pct(rejectedPoints, totalPoints),
       notDoneTasks, notDonePoints,
       carriedOutTasks: carriedOut.length, carriedOutPoints: sum(carriedOut, 'points'),
       carryDestinations,
@@ -190,6 +197,8 @@ const Metrics = (() => {
       done: p ? m.donePoints : m.doneTasks,
       dropped: p ? m.droppedPoints : m.droppedTasks,
       droppedShare: p ? m.droppedSharePoints : m.droppedShareTasks,
+      rejected: p ? m.rejectedPoints : m.rejectedTasks,
+      rejectedShare: p ? m.rejectedSharePoints : m.rejectedShareTasks,
       notDone: p ? m.notDonePoints : m.notDoneTasks,
       carriedOut: p ? m.carriedOutPoints : m.carriedOutTasks,
       carried: p ? m.carriedPoints : m.carriedTasks,
@@ -232,9 +241,10 @@ const Metrics = (() => {
       const d = dayOf(t.createdAt);
       return d < sprint.startDate ? sprint.startDate : d;
     };
-    // Задача в объёме дня, если уже заведена и ещё не снята со спринта
+    // Задача в объёме дня, если уже заведена и ещё не снята со спринта и не отклонена
     const inScope = (t, day) =>
-      bornDay(t) <= day && !(t.dropped && t.droppedAt && dayOf(t.droppedAt) <= day);
+      bornDay(t) <= day && !(t.dropped && t.droppedAt && dayOf(t.droppedAt) <= day) &&
+      !(t.status === 'rejected' && t.rejectedAt && dayOf(t.rejectedAt) <= day);
 
     const scope = [], completed = [], remaining = [], ideal = [];
 

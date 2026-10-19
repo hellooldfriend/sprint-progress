@@ -131,28 +131,34 @@ test('реальный набор статусов из Jira распознаё�
   for (const [input, expected] of Object.entries(columns)) {
     assert.equal(Store.matchStatus(input), expected, `${input} → ${expected}`);
   }
-  // Rejected и Hold — не стадии работы, а решения по задаче
-  assert.equal(Store.matchStatus('Rejected'), null);
-  assert.equal(Store.matchDropStatus('Rejected'), 'cancelled');
+  // Rejected — своя колонка, Hold — решение по задаче, а не стадия работы
+  assert.equal(Store.matchStatus('Rejected'), 'rejected');
+  assert.equal(Store.matchDropStatus('Rejected'), null);
   assert.equal(Store.matchStatus('Hold'), null);
   assert.equal(Store.matchDropStatus('Hold'), 'blocked');
 });
 
 test('статусы-решения имеют синонимы на обоих языках', () => {
   const { Store } = loadApp();
-  ['rejected', "won't do", 'Отклонена', 'ОТМЕНЕНО', 'declined']
+  ["won't do", 'ОТМЕНЕНО', 'cancelled']
     .forEach(v => assert.equal(Store.matchDropStatus(v), 'cancelled', v));
+  ['rejected', 'Отклонена', 'declined']
+    .forEach(v => assert.equal(Store.matchStatus(v), 'rejected', v));
   ['hold', 'On Hold', 'blocked', 'Заблокировано', 'на паузе']
     .forEach(v => assert.equal(Store.matchDropStatus(v), 'blocked', v));
   assert.equal(Store.matchDropStatus('Готово'), null, 'обычная колонка снятием не считается');
 });
 
-test('в массовом вводе Rejected снимает задачу со спринта', () => {
+test('в массовом вводе Rejected попадает в свою колонку, Cancelled снимает задачу', () => {
   const { Store } = loadApp();
   const rejected = Store.parseBulkLine('DEV-9 "Отклонённая" Задача Rejected 5');
-  assert.equal(rejected.dropped, true);
-  assert.equal(rejected.dropReason, 'cancelled');
-  assert.equal(rejected.status, 'backlog', 'колонки для снятого нет — кладём в бэклог');
+  assert.equal(rejected.dropped, false);
+  assert.equal(rejected.status, 'rejected');
+
+  const cancelled = Store.parseBulkLine('DEV-12 "Отменённая" Задача Cancelled 5');
+  assert.equal(cancelled.dropped, true);
+  assert.equal(cancelled.dropReason, 'cancelled');
+  assert.equal(cancelled.status, 'backlog', 'колонки для снятого нет — кладём в бэклог');
 
   const hold = Store.parseBulkLine('DEV-10 "Подвисла" Задача Hold 3');
   assert.equal(hold.dropReason, 'blocked');

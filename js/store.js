@@ -15,7 +15,7 @@
        tasks: [{ id, key:string, title, type:string, points:number|null, status,
                  unplanned:boolean, dropped:boolean, dropReason:string, assignee:string,
                  carriedFrom:{id,name}|null, carriedTo:{id,name}|null, carryCount:number,
-                 createdAt:ISO, doneAt:ISO|null, droppedAt:ISO|null }]
+                 createdAt:ISO, doneAt:ISO|null, rejectedAt:ISO|null, droppedAt:ISO|null }]
      }],
      epics: [{ id, key:string, issueId:string, title, author, assignee, status,
                createdAt:ISO, plannedStart:'YYYY-MM-DD'|null, plannedEnd:'YYYY-MM-DD'|null,
@@ -43,6 +43,8 @@ const Store = (() => {
     { id: 'testing',       label: 'Testing',       color: 'var(--cyan)',   dot: 'dot--cyan',    icon: '🧪' },
     { id: 'deploy',        label: 'Deploy',        color: 'var(--teal)',   dot: 'dot--teal',    icon: '🚀' },
     { id: 'done',          label: 'Done',          color: 'var(--green)',  dot: 'dot--green',   icon: '✅' },
+    // Rejected — финал без результата: не стадия работы, поэтому стоит после Done и стрелками не достижим
+    { id: 'rejected',      label: 'Rejected',      color: 'var(--red)',    dot: 'dot--red',     icon: '⛔' },
   ];
 
   /** Задача «в работе»: начата, но ещё не закрыта. Нужна метрикам и подсказкам. */
@@ -61,6 +63,10 @@ const Store = (() => {
   const DROP_REASON_IDS = DROP_REASONS.map(r => r.id);
   const dropReasonById = id => DROP_REASONS.find(r => r.id === id) || DROP_REASONS[0];
   const STATUS_IDS = STATUSES.map(s => s.id);
+  /** Колонки, по которым задача ходит стрелками: рабочий процесс без Rejected. */
+  const WORKFLOW_IDS = STATUS_IDS.filter(id => id !== 'rejected');
+  /** Финальные статусы: задача больше не работа спринта, снять её «Не закроем» нельзя. */
+  const isClosedStatus = status => status === 'done' || status === 'rejected';
 
   /**
    * Статусы эпиков — свой workflow, длиннее спринтового: эпик сначала проходит требования и оценку.
@@ -174,16 +180,16 @@ const Store = (() => {
                'деплой', 'на деплое', 'на выкатке', 'выкатка', 'релиз', 'готово к деплою'],
     done:     ['done', 'closed', 'resolved', 'complete', 'completed',
                'готово', 'готова', 'выполнено', 'выполнена', 'закрыто', 'закрыта', 'завершено', 'сделано'],
+    rejected: ['rejected', 'reject', 'declined', 'отклонено', 'отклонена', 'отклонён', 'отклонен'],
   };
 
   /**
    * Статусы трекера, которые не являются стадией работы: задача не движется по доске,
    * а снята с неё решением команды. В модели это флаг «Не закроем» с причиной,
-   * поэтому в колонку они не превращаются — иначе Rejected копился бы в remaining work,
-   * а попав в Done, ещё и надувал бы velocity.
+   * поэтому в колонку они не превращаются. Rejected сюда не входит: у него своя колонка.
    */
   const DROP_STATUS_ALIASES = {
-    cancelled: ['rejected', 'reject', 'declined', 'cancelled', 'canceled', 'won\'t do', 'wont do', 'wont fix',
+    cancelled: ['cancelled', 'canceled', 'won\'t do', 'wont do', 'wont fix',
                 'отклонено', 'отклонена', 'отменено', 'отменена', 'не будет делаться'],
     blocked:   ['hold', 'on hold', 'blocked', 'is blocked', 'paused', 'pending',
                 'заблокировано', 'заблокирована', 'на паузе', 'приостановлено', 'ожидание'],
@@ -340,7 +346,7 @@ const Store = (() => {
       const candidate = tokens.slice(-n).map(t => t.v).join(' ');
       const found = matchStatus(candidate);
       if (found) { status = found; tokens.splice(-n); continue; }
-      // Rejected / Hold — не колонка, а снятие со спринта
+      // Cancelled / Hold — не колонка, а снятие со спринта
       const drop = matchDropStatus(candidate);
       if (drop) { dropReason = drop; status = 'backlog'; tokens.splice(-n); }
     }
@@ -556,7 +562,7 @@ const Store = (() => {
             points,
             status,
             unplanned: !!t.unplanned,
-            dropped: status === 'done' ? false : !!t.dropped,
+            dropped: isClosedStatus(status) ? false : !!t.dropped,
             dropReason: DROP_REASON_IDS.includes(t.dropReason) ? t.dropReason : 'carry',
             carriedFrom: t.carriedFrom && (t.carriedFrom.id || t.carriedFrom.name)
               ? { id: String(t.carriedFrom.id || ''), name: String(t.carriedFrom.name || 'прошлый спринт').slice(0, 120) }
@@ -568,7 +574,8 @@ const Store = (() => {
             assignee: String(t.assignee || '').slice(0, 60),
             createdAt: t.createdAt || new Date().toISOString(),
             doneAt: status === 'done' ? (t.doneAt || new Date().toISOString()) : null,
-            droppedAt: status !== 'done' && t.dropped ? (t.droppedAt || new Date().toISOString()) : null,
+            rejectedAt: status === 'rejected' ? (t.rejectedAt || new Date().toISOString()) : null,
+            droppedAt: !isClosedStatus(status) && t.dropped ? (t.droppedAt || new Date().toISOString()) : null,
           };
         }) : [],
       };
@@ -918,6 +925,7 @@ const Store = (() => {
 
       return {
         doneAt: status === 'done' ? parseDateTime(cell(row, mapping.resolved)) : null,
+        rejectedAt: status === 'rejected' ? parseDateTime(cell(row, mapping.resolved)) : null,
         key: cell(row, mapping.key).toUpperCase(),
         title,
         type: matchType(cell(row, mapping.type)) || cell(row, mapping.type),
@@ -958,6 +966,7 @@ const Store = (() => {
       assignee: (assignee || '').trim(),
       createdAt: now,
       doneAt: st === 'done' ? now : null,
+      rejectedAt: st === 'rejected' ? now : null,
       droppedAt: null,
     };
   }
@@ -1007,7 +1016,8 @@ const Store = (() => {
           carryCount: item.carryCount || existing.carryCount,
           carriedFrom: item.carriedFrom || existing.carriedFrom,
           ...(item.doneAt ? { doneAt: item.doneAt } : {}),
-          // Снятие ставим, только если трекер сказал это прямо (Rejected / Hold).
+          ...(item.rejectedAt ? { rejectedAt: item.rejectedAt } : {}),
+          // Снятие ставим, только если трекер сказал это прямо (Cancelled / Hold).
           // Обратно флаг импорт не снимает — это остаётся решением тимлида.
           ...(item.dropped ? { dropped: true, dropReason: item.dropReason } : {}),
         });
@@ -1020,6 +1030,7 @@ const Store = (() => {
         }
         // Дата закрытия из выгрузки — чтобы burn-down знал реальный день, а не момент импорта
         if (item.doneAt && task.status === 'done') task.doneAt = item.doneAt;
+        if (item.rejectedAt && task.status === 'rejected') task.rejectedAt = item.rejectedAt;
         if (item.dropped) {
           task.dropped = true;
           task.dropReason = item.dropReason || 'carry';
@@ -1034,15 +1045,19 @@ const Store = (() => {
     return { added: created.length, updated, total: items.length };
   }
 
-  /** Накатывает изменения на задачу, поддерживая doneAt/droppedAt в согласованном состоянии. */
+  /** Накатывает изменения на задачу, поддерживая doneAt/rejectedAt/droppedAt в согласованном состоянии. */
   function applyTaskPatch(task, patch) {
     if (patch.status && patch.status !== task.status) {
       // doneAt проставляем при входе в Done и снимаем при выходе — на нём строится burn-down
       patch.doneAt = patch.status === 'done'
         ? (patch.doneAt || task.doneAt || new Date().toISOString())
         : null;
+      // rejectedAt — день, когда задачу отклонили: с него она выходит из объёма на burn-up
+      patch.rejectedAt = patch.status === 'rejected'
+        ? (patch.rejectedAt || task.rejectedAt || new Date().toISOString())
+        : null;
       // Закрытая задача не может быть снятой — иначе метрики начинают спорить сами с собой
-      if (patch.status === 'done' && task.dropped && patch.dropped === undefined) {
+      if (isClosedStatus(patch.status) && task.dropped && patch.dropped === undefined) {
         patch.dropped = false;
       }
     }
@@ -1051,7 +1066,7 @@ const Store = (() => {
       // droppedAt — день урезания скоупа, по нему падает линия объёма на burn-up
       patch.droppedAt = patch.dropped ? (task.droppedAt || new Date().toISOString()) : null;
       if (!patch.dropped) patch.carriedTo = null;   // вернули в спринт — переноса больше нет
-      if (patch.dropped && (patch.status || task.status) === 'done') patch.status = task.status;
+      if (patch.dropped && isClosedStatus(patch.status || task.status)) patch.status = task.status;
     }
     if (patch.dropReason !== undefined && !DROP_REASON_IDS.includes(patch.dropReason)) {
       patch.dropReason = 'carry';
@@ -1082,19 +1097,21 @@ const Store = (() => {
     const s = sprintById(sprintId);
     const t = s && s.tasks.find(x => x.id === taskId);
     if (!t) return null;
-    const idx = STATUS_IDS.indexOf(t.status);
-    const next = STATUS_IDS[Math.min(STATUS_IDS.length - 1, Math.max(0, idx + dir))];
+    // Rejected — не шаг процесса: из него и в него задачу переносят явно, а не стрелками
+    if (t.status === 'rejected') return null;
+    const idx = WORKFLOW_IDS.indexOf(t.status);
+    const next = WORKFLOW_IDS[Math.min(WORKFLOW_IDS.length - 1, Math.max(0, idx + dir))];
     return setTaskStatus(sprintId, taskId, next);
   }
 
   /**
    * Задачи, которые имеет смысл предлагать к переносу при закрытии спринта:
-   * всё незакрытое, кроме отменённого — отменённое переносить незачем.
+   * всё незакрытое, кроме отменённого и отклонённого — их переносить незачем.
    */
   function carryCandidates(sprintId) {
     const s = sprintById(sprintId);
     if (!s) return [];
-    return s.tasks.filter(t => t.status !== 'done' && !(t.dropped && t.dropReason === 'cancelled'));
+    return s.tasks.filter(t => !isClosedStatus(t.status) && !(t.dropped && t.dropReason === 'cancelled'));
   }
 
   /**
@@ -1112,7 +1129,7 @@ const Store = (() => {
     const created = [];
     items.forEach(({ taskId, points }) => {
       const src = from.tasks.find(t => t.id === taskId);
-      if (!src || src.status === 'done') return;
+      if (!src || isClosedStatus(src.status)) return;
 
       // В закрываемом спринте задача честно уходит из remaining — и помнит, куда уехала
       applyTaskPatch(src, {
@@ -1477,7 +1494,7 @@ const Store = (() => {
   }
 
   return {
-    STATUSES, STATUS_IDS, IN_FLIGHT_IDS, SPRINT_DEFAULT_DAYS, TYPE_ALIASES,
+    STATUSES, STATUS_IDS, WORKFLOW_IDS, IN_FLIGHT_IDS, isClosedStatus, SPRINT_DEFAULT_DAYS, TYPE_ALIASES,
     DROP_REASONS, DROP_REASON_IDS, dropReasonById,
     // разбор массового ввода
     parseBulkLine, parseBulkText, matchStatus, matchType, matchDropStatus, resolveStatus,
