@@ -28,6 +28,8 @@ const Metrics = (() => {
     const dropped = tasks.filter(t => t.dropped);
     // Отклонённые (Rejected): так же в объёме, но не в remaining и не в velocity
     const rejected = tasks.filter(t => t.status === 'rejected');
+    // На паузе (Hold): остаются в remaining — их ещё делать, — но «в работе» не считаются
+    const hold = tasks.filter(t => t.status === 'hold' && !t.dropped);
     // Приехали из прошлых спринтов: это долг, а не свежевзятая работа
     const carried = tasks.filter(t => (t.carryCount || 0) > 0);
     // Уехали дальше: для закрытого спринта это ответ на вопрос «куда делось несделанное»
@@ -143,6 +145,7 @@ const Metrics = (() => {
       doneTasks, donePoints,
       droppedTasks, droppedPoints, dropByReason,
       rejectedTasks, rejectedPoints,
+      holdTasks: hold.length, holdPoints: sum(hold, 'points'),
       rejectedShareTasks: pct(rejectedTasks, totalTasks),
       rejectedSharePoints: pct(rejectedPoints, totalPoints),
       notDoneTasks, notDonePoints,
@@ -198,6 +201,7 @@ const Metrics = (() => {
       dropped: p ? m.droppedPoints : m.droppedTasks,
       droppedShare: p ? m.droppedSharePoints : m.droppedShareTasks,
       rejected: p ? m.rejectedPoints : m.rejectedTasks,
+      hold: p ? m.holdPoints : m.holdTasks,
       rejectedShare: p ? m.rejectedSharePoints : m.rejectedShareTasks,
       notDone: p ? m.notDonePoints : m.notDoneTasks,
       carriedOut: p ? m.carriedOutPoints : m.carriedOutTasks,

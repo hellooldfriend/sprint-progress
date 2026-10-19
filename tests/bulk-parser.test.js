@@ -131,11 +131,13 @@ test('реальный набор статусов из Jira распознаё�
   for (const [input, expected] of Object.entries(columns)) {
     assert.equal(Store.matchStatus(input), expected, `${input} → ${expected}`);
   }
-  // Rejected — своя колонка, Hold — решение по задаче, а не стадия работы
+  // Rejected и Hold — свои колонки, Blocked — решение по задаче, а не стадия работы
   assert.equal(Store.matchStatus('Rejected'), 'rejected');
   assert.equal(Store.matchDropStatus('Rejected'), null);
-  assert.equal(Store.matchStatus('Hold'), null);
-  assert.equal(Store.matchDropStatus('Hold'), 'blocked');
+  assert.equal(Store.matchStatus('Hold'), 'hold');
+  assert.equal(Store.matchDropStatus('Hold'), null);
+  assert.equal(Store.matchStatus('Blocked'), null);
+  assert.equal(Store.matchDropStatus('Blocked'), 'blocked');
 });
 
 test('статусы-решения имеют синонимы на обоих языках', () => {
@@ -144,8 +146,10 @@ test('статусы-решения имеют синонимы на обоих 
     .forEach(v => assert.equal(Store.matchDropStatus(v), 'cancelled', v));
   ['rejected', 'Отклонена', 'declined']
     .forEach(v => assert.equal(Store.matchStatus(v), 'rejected', v));
-  ['hold', 'On Hold', 'blocked', 'Заблокировано', 'на паузе']
+  ['blocked', 'Заблокировано', 'is blocked']
     .forEach(v => assert.equal(Store.matchDropStatus(v), 'blocked', v));
+  ['hold', 'On Hold', 'на паузе', 'Paused']
+    .forEach(v => assert.equal(Store.matchStatus(v), 'hold', v));
   assert.equal(Store.matchDropStatus('Готово'), null, 'обычная колонка снятием не считается');
 });
 
@@ -161,7 +165,8 @@ test('в массовом вводе Rejected попадает в свою ко�
   assert.equal(cancelled.status, 'backlog', 'колонки для снятого нет — кладём в бэклог');
 
   const hold = Store.parseBulkLine('DEV-10 "Подвисла" Задача Hold 3');
-  assert.equal(hold.dropReason, 'blocked');
+  assert.equal(hold.status, 'hold');
+  assert.equal(hold.dropped, false);
 
   const normal = Store.parseBulkLine('DEV-11 "Обычная" Задача Готово 2');
   assert.equal(normal.dropped, false);

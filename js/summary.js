@@ -112,7 +112,9 @@ const Summary = (() => {
     } else {
       const remaining = byPoints ? `${n(m.remainingPoints)} SP` : `${m.remainingTasks} ${tasksWord(m.remainingTasks)}`;
       const inFlight = byPoints ? `${n(m.inProgressPoints)} SP` : `${m.inProgressTasks} ${tasksWord(m.inProgressTasks)}`;
-      lines.push(`⏳ Осталось ${remaining}, из них в работе ${inFlight}`);
+      const onHold = m.holdTasks
+        ? `, на паузе ${byPoints ? `${n(m.holdPoints)} SP` : `${m.holdTasks} ${tasksWord(m.holdTasks)}`}` : '';
+      lines.push(`⏳ Осталось ${remaining}, из них в работе ${inFlight}${onHold}`);
 
       if (m.droppedTasks) {
         const dropped = byPoints ? `${n(m.droppedPoints)} SP` : `${m.droppedTasks} ${tasksWord(m.droppedTasks)}`;
@@ -191,8 +193,8 @@ const Summary = (() => {
     const out = [];
     const live = sprint.tasks.filter(t => !t.dropped);
 
-    // Порядок обратный доске: сперва то, что ближе к готовности, Rejected — в конце, рядом со снятым
-    [...Store.WORKFLOW_IDS].reverse().concat('rejected').forEach(statusId => {
+    // Порядок обратный доске: сперва то, что ближе к готовности, Hold и Rejected — в конце, рядом со снятым
+    [...Store.WORKFLOW_IDS].reverse().concat('hold', 'rejected').forEach(statusId => {
       const group = live.filter(t => t.status === statusId);
       if (!group.length) return;
       const status = Store.STATUSES.find(s => s.id === statusId);

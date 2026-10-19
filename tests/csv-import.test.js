@@ -137,12 +137,11 @@ test('весь набор статусов команды разбирается
 
   assert.deepEqual(res.unknownStatuses, [], 'сопоставлять руками нечего');
   assert.deepEqual(res.items.map(i => i.status),
-    ['progress', 'ready_to_test', 'rejected', 'backlog', 'done', 'deploy', 'review', 'todo']);
-  assert.deepEqual(res.items.filter(i => i.dropped).map(i => [i.key, i.dropReason]),
-    [['DEV-4', 'blocked']]);
+    ['progress', 'ready_to_test', 'rejected', 'hold', 'done', 'deploy', 'review', 'todo']);
+  assert.deepEqual(res.items.filter(i => i.dropped), [], 'Hold и Rejected — колонки, а не снятие');
 });
 
-test('Rejected и Hold уходят из remaining work, а не копятся в нём', () => {
+test('Rejected уходит из remaining work, Hold остаётся в нём, но не «в работе»', () => {
   const app = loadApp();
   const { Store, Metrics } = app;
   const sprint = makeSprint(app, { tasks: [] });
@@ -158,12 +157,14 @@ test('Rejected и Hold уходят из remaining work, а не копятся 
   const m = Metrics.sprintMetrics(Store.sprintById(sprint.id));
   assert.equal(m.totalPoints, 20, 'объём обязательства не меняется');
   assert.equal(m.donePoints, 5);
-  assert.equal(m.droppedPoints, 2, 'Hold снят');
+  assert.equal(m.droppedPoints, 0);
   assert.equal(m.rejectedPoints, 5, 'Rejected считается отдельно');
   assert.equal(m.rejectedTasks, 1);
-  assert.equal(m.remainingPoints, 8, 'в остатке только то, что реально делается');
+  assert.equal(m.holdPoints, 2, 'Hold считается отдельно');
+  assert.equal(m.holdTasks, 1);
+  assert.equal(m.remainingPoints, 10, 'в остатке работа и пауза, без отклонённого');
+  assert.equal(m.inProgressPoints, 8, 'пауза — не «в работе»');
   assert.equal(m.velocity, 5, 'Rejected не надувает velocity');
-  assert.deepEqual(m.dropByReason.map(r => [r.id, r.points]), [['blocked', 2]]);
 });
 
 test('повторный импорт ставит снятие, но обратно его не снимает', () => {

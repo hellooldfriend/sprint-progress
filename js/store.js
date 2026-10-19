@@ -43,7 +43,10 @@ const Store = (() => {
     { id: 'testing',       label: 'Testing',       color: 'var(--cyan)',   dot: 'dot--cyan',    icon: '🧪' },
     { id: 'deploy',        label: 'Deploy',        color: 'var(--teal)',   dot: 'dot--teal',    icon: '🚀' },
     { id: 'done',          label: 'Done',          color: 'var(--green)',  dot: 'dot--green',   icon: '✅' },
-    // Rejected — финал без результата: не стадия работы, поэтому стоит после Done и стрелками не достижим
+    // Hold и Rejected — не стадии работы, поэтому стоят после Done и стрелками не достижимы.
+    // Hold — пауза: задача ещё в работе спринта, но не движется
+    { id: 'hold',          label: 'Hold',          color: 'var(--amber)',  dot: 'dot--amber',   icon: '⏸' },
+    // Rejected — финал без результата
     { id: 'rejected',      label: 'Rejected',      color: 'var(--red)',    dot: 'dot--red',     icon: '⛔' },
   ];
 
@@ -63,8 +66,8 @@ const Store = (() => {
   const DROP_REASON_IDS = DROP_REASONS.map(r => r.id);
   const dropReasonById = id => DROP_REASONS.find(r => r.id === id) || DROP_REASONS[0];
   const STATUS_IDS = STATUSES.map(s => s.id);
-  /** Колонки, по которым задача ходит стрелками: рабочий процесс без Rejected. */
-  const WORKFLOW_IDS = STATUS_IDS.filter(id => id !== 'rejected');
+  /** Колонки, по которым задача ходит стрелками: рабочий процесс без Hold и Rejected. */
+  const WORKFLOW_IDS = STATUS_IDS.filter(id => id !== 'hold' && id !== 'rejected');
   /** Финальные статусы: задача больше не работа спринта, снять её «Не закроем» нельзя. */
   const isClosedStatus = status => status === 'done' || status === 'rejected';
 
@@ -180,19 +183,20 @@ const Store = (() => {
                'деплой', 'на деплое', 'на выкатке', 'выкатка', 'релиз', 'готово к деплою'],
     done:     ['done', 'closed', 'resolved', 'complete', 'completed',
                'готово', 'готова', 'выполнено', 'выполнена', 'закрыто', 'закрыта', 'завершено', 'сделано'],
+    hold:     ['hold', 'on hold', 'onhold', 'paused', 'на паузе', 'пауза', 'приостановлено', 'приостановлена',
+               'отложено', 'отложена'],
     rejected: ['rejected', 'reject', 'declined', 'отклонено', 'отклонена', 'отклонён', 'отклонен'],
   };
 
   /**
    * Статусы трекера, которые не являются стадией работы: задача не движется по доске,
    * а снята с неё решением команды. В модели это флаг «Не закроем» с причиной,
-   * поэтому в колонку они не превращаются. Rejected сюда не входит: у него своя колонка.
+   * поэтому в колонку они не превращаются. Hold и Rejected сюда не входят: у них свои колонки.
    */
   const DROP_STATUS_ALIASES = {
     cancelled: ['cancelled', 'canceled', 'won\'t do', 'wont do', 'wont fix',
                 'отклонено', 'отклонена', 'отменено', 'отменена', 'не будет делаться'],
-    blocked:   ['hold', 'on hold', 'blocked', 'is blocked', 'paused', 'pending',
-                'заблокировано', 'заблокирована', 'на паузе', 'приостановлено', 'ожидание'],
+    blocked:   ['blocked', 'is blocked', 'pending', 'заблокировано', 'заблокирована', 'ожидание'],
   };
 
   /** Строка → причина снятия ('cancelled' | 'blocked') или null. */
@@ -346,7 +350,7 @@ const Store = (() => {
       const candidate = tokens.slice(-n).map(t => t.v).join(' ');
       const found = matchStatus(candidate);
       if (found) { status = found; tokens.splice(-n); continue; }
-      // Cancelled / Hold — не колонка, а снятие со спринта
+      // Cancelled / Blocked — не колонка, а снятие со спринта
       const drop = matchDropStatus(candidate);
       if (drop) { dropReason = drop; status = 'backlog'; tokens.splice(-n); }
     }
@@ -1017,7 +1021,7 @@ const Store = (() => {
           carriedFrom: item.carriedFrom || existing.carriedFrom,
           ...(item.doneAt ? { doneAt: item.doneAt } : {}),
           ...(item.rejectedAt ? { rejectedAt: item.rejectedAt } : {}),
-          // Снятие ставим, только если трекер сказал это прямо (Cancelled / Hold).
+          // Снятие ставим, только если трекер сказал это прямо (Cancelled / Blocked).
           // Обратно флаг импорт не снимает — это остаётся решением тимлида.
           ...(item.dropped ? { dropped: true, dropReason: item.dropReason } : {}),
         });
@@ -1097,8 +1101,8 @@ const Store = (() => {
     const s = sprintById(sprintId);
     const t = s && s.tasks.find(x => x.id === taskId);
     if (!t) return null;
-    // Rejected — не шаг процесса: из него и в него задачу переносят явно, а не стрелками
-    if (t.status === 'rejected') return null;
+    // Hold и Rejected — не шаги процесса: из них и в них задачу переносят явно, а не стрелками
+    if (!WORKFLOW_IDS.includes(t.status)) return null;
     const idx = WORKFLOW_IDS.indexOf(t.status);
     const next = WORKFLOW_IDS[Math.min(WORKFLOW_IDS.length - 1, Math.max(0, idx + dir))];
     return setTaskStatus(sprintId, taskId, next);

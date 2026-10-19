@@ -197,3 +197,22 @@ test('Rejected: стрелки его не трогают, снять откло
 
   assert.ok(!Store.carryCandidates(sprint.id).some(t => t.id === rejected.id));
 });
+
+test('Hold: стрелки его не трогают, задачу на паузе можно снять и перенести', () => {
+  const app = loadApp();
+  const { Store } = app;
+  const sprint = makeSprint(app, { tasks: [
+    { key: 'A-1', status: 'deploy' },
+    { key: 'A-2', status: 'hold' },
+  ]});
+  const byKey = key => Store.sprintById(sprint.id).tasks.find(t => t.key === key);
+
+  Store.shiftTaskStatus(sprint.id, byKey('A-1').id, 1);
+  assert.equal(byKey('A-1').status, 'done', 'из Deploy стрелкой — в Done, мимо Hold');
+  assert.equal(Store.shiftTaskStatus(sprint.id, byKey('A-2').id, 1), null);
+  assert.equal(byKey('A-2').status, 'hold');
+  assert.ok(Store.carryCandidates(sprint.id).some(t => t.key === 'A-2'), 'пауза переносится в следующий спринт');
+
+  Store.toggleTaskDropped(sprint.id, byKey('A-2').id, 'carry');
+  assert.equal(byKey('A-2').dropped, true);
+});

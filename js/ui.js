@@ -221,6 +221,7 @@ const UI = (() => {
                ${v.rejected > 0 ? `<div class="hero__stat"><b style="color:var(--red)">${Metrics.fmt(v.rejected)}</b><span>Rejected</span></div>` : ''}`
             : `<div class="hero__stat"><b>${Metrics.fmt(v.remaining)}</b><span>Осталось</span></div>
                ${v.dropped > 0 ? `<div class="hero__stat"><b style="color:var(--muted)">${Metrics.fmt(v.dropped)}</b><span>Снято</span></div>` : ''}
+               ${v.hold > 0 ? `<div class="hero__stat"><b style="color:var(--amber)">${Metrics.fmt(v.hold)}</b><span>Hold</span></div>` : ''}
                ${v.rejected > 0 ? `<div class="hero__stat"><b style="color:var(--red)">${Metrics.fmt(v.rejected)}</b><span>Rejected</span></div>` : ''}
                <div class="hero__stat"><b>${m.daysLeft}</b><span>${Metrics.plural(m.daysLeft, 'рабочий день', 'рабочих дня', 'рабочих дней')} до конца</span></div>`}
         </div>
@@ -350,6 +351,12 @@ const UI = (() => {
       ${v.dropped > 0 ? card({
         dot: 'dot--muted', title: archived ? 'Сняли со спринта' : 'Не закроем', value: Metrics.fmt(v.dropped), unit: unitFor(v.dropped),
         foot: `${v.droppedShare}% объёма спринта · ${m.dropByReason.map(r => `${r.short} ${Metrics.fmt(mode() === 'points' ? r.points : r.count)}`).join(' · ')}`,
+      }) : ''}
+      ${v.hold > 0 ? card({
+        dot: 'dot--amber', title: 'Hold', value: Metrics.fmt(v.hold), unit: unitFor(v.hold),
+        foot: (mode() === 'points'
+          ? `${m.holdTasks} ${Metrics.plural(m.holdTasks, 'задача', 'задачи', 'задач')}`
+          : `${Metrics.fmt(m.holdPoints)} SP`) + ' на паузе — входят в remaining, но не двигаются',
       }) : ''}
       ${v.rejected > 0 ? card({
         dot: 'dot--red', title: 'Rejected', value: Metrics.fmt(v.rejected), unit: unitFor(v.rejected),
@@ -590,18 +597,20 @@ const UI = (() => {
       testing: 'QA отдыхает',
       deploy: 'Нечего катить',
       done: 'Пока ничего не закрыто',
+      hold: 'Ничего не на паузе',
       rejected: 'Ничего не отклонили',
     };
     return texts[statusId] || 'Пусто';
   }
 
   function taskHTML(t, readonly) {
-    // Rejected стрелками не двигается: из него и в него — перетаскиванием или через редактирование
+    // Hold и Rejected стрелками не двигаются: из них и в них — перетаскиванием или через редактирование
     const isRejected = t.status === 'rejected';
     const idx = Store.WORKFLOW_IDS.indexOf(t.status);
-    const isFirst = isRejected || idx === 0, isLast = isRejected || idx === Store.WORKFLOW_IDS.length - 1;
+    const offFlow = idx === -1;
+    const isFirst = offFlow || idx === 0, isLast = offFlow || idx === Store.WORKFLOW_IDS.length - 1;
     return `
-    <article class="task ${t.unplanned ? 'is-unplanned' : ''} ${t.status === 'done' ? 'is-done' : ''} ${isRejected ? 'is-rejected' : ''} ${t.dropped ? 'is-dropped' : ''}"
+    <article class="task ${t.unplanned ? 'is-unplanned' : ''} ${t.status === 'done' ? 'is-done' : ''} ${isRejected ? 'is-rejected' : ''} ${t.status === 'hold' ? 'is-hold' : ''} ${t.dropped ? 'is-dropped' : ''}"
              data-task="${t.id}" ${readonly ? '' : 'draggable="true"'}>
       ${t.key ? `<div class="task__key">${taskKeyHTML(t)}</div>` : ''}
       <div class="task__title">${esc(t.title)}</div>
