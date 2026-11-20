@@ -513,12 +513,22 @@
   // Кнопки «назад/вперёд» браузера переключают разделы
   window.addEventListener('popstate', () => UI.setTab(UI.tabFromHash()));
 
-  // История: открыть спринт
-  $('#historyBody').addEventListener('click', e => {
+  function openSprintFromReport(e) {
     const btn = e.target.closest('[data-open-sprint]');
     if (!btn) return;
     Store.selectSprint(btn.dataset.openSprint);
     UI.setTab('dashboard');
+  }
+  $('#historyBody').addEventListener('click', openSprintFromReport);
+  $('#compareBody').addEventListener('click', openSprintFromReport);
+
+  $('#compareControls').addEventListener('change', e => {
+    const field = e.target.id;
+    if (field !== 'comparePrimary' && field !== 'compareBaseline') return;
+    const other = field === 'comparePrimary' ? 'compareBaseline' : 'comparePrimary';
+    if (e.target.value === UI.view[other]) UI.view[other] = UI.view[field];
+    UI.view[field] = e.target.value;
+    UI.render();
   });
 
   // Кнопки создания
@@ -607,12 +617,14 @@
   $('#btnReopenInline').addEventListener('click', reopenActive);
 
   // Переключатель единиц измерения
-  $('#metricMode').addEventListener('click', e => {
+  function changeMetricMode(e) {
     const btn = e.target.closest('[data-mode]');
     if (!btn) return;
     Store.setSetting('metricMode', btn.dataset.mode);
     UI.render();
-  });
+  }
+  $('#metricMode').addEventListener('click', changeMetricMode);
+  $('#compareMode').addEventListener('click', changeMetricMode);
 
   // График, фильтры и поиск живут внутри перерисовываемого блока → делегирование
   $('#dashboardBody').addEventListener('click', e => {

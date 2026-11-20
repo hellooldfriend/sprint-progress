@@ -670,6 +670,20 @@ table.data tbody tr:hover { background: var(--surface-2); }
 .t-sub--done { color: var(--green); font-weight: 600; }
 .t-num { font-family: var(--mono); font-size: 12.5px; }
 
+.compare-controls {
+  display: flex; flex-wrap: wrap; align-items: end; gap: 12px;
+  margin-bottom: 16px;
+}
+.compare-controls .field { flex: 1 1 220px; min-width: 0; }
+.compare-controls select { width: 100%; }
+table.compare-table { min-width: 520px; }
+.compare-table thead th { white-space: normal; }
+.compare-table thead .t-name { color: var(--text); }
+.compare-table thead .t-name,
+.compare-table thead .t-sub { text-transform: none; letter-spacing: normal; overflow-wrap: anywhere; }
+.compare-table tbody th { color: var(--text); font-size: 13px; text-transform: none; letter-spacing: normal; }
+.compare-table td { white-space: nowrap; }
+
 .minibar { display: flex; align-items: center; gap: 9px; min-width: 132px; }
 .minibar__track { flex: 1; height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
 .minibar__fill { height: 100%; border-radius: 99px; background: var(--accent); transition: width .6s var(--ease); }

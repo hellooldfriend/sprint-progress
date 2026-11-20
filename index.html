@@ -39,6 +39,10 @@
         <svg class="ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3.5 2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         История
       </button>
+      <button class="nav__item" data-view="compare">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M4 20h16M7 16V9m5 7V4m5 12v-5" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>
+        Сравнение
+      </button>
 
       <div class="nav__group">Эпики</div>
       <button class="nav__item" data-view="epics">
@@ -193,6 +197,24 @@
     <!-- ───────── История ───────── -->
     <section class="view" id="view-history" hidden>
       <div id="historyBody"><!-- JS --></div>
+    </section>
+
+    <section class="view" id="view-compare" hidden>
+      <div class="compare-controls" id="compareControls" hidden>
+        <label class="field">
+          <span class="field__label">Основной спринт</span>
+          <select class="input" id="comparePrimary"></select>
+        </label>
+        <label class="field">
+          <span class="field__label">Спринт для сравнения</span>
+          <select class="input" id="compareBaseline"></select>
+        </label>
+        <div class="segmented" id="compareMode" role="group" aria-label="Единица измерения метрик">
+          <button type="button" data-mode="points">Story points</button>
+          <button type="button" data-mode="tasks">Задачи</button>
+        </div>
+      </div>
+      <div id="compareBody" aria-live="polite"></div>
     </section>
 
     <!-- ───────── Эпики ───────── -->

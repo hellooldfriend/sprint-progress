@@ -7,7 +7,9 @@ const UI = (() => {
 
   /** Локальное состояние интерфейса (не сохраняется). */
   const view = {
-    tab: 'home',           // 'home' | 'dashboard' | 'history' | 'epics' | 'queue'
+    tab: 'home',
+    comparePrimary: null,
+    compareBaseline: null,
     query: '',             // поиск по задачам
     kind: 'all',           // 'all' | 'planned' | 'unplanned'
     assignee: null,        // null | имя в нижнем регистре | '__none__' — задачи без исполнителя
@@ -54,7 +56,7 @@ const UI = (() => {
 
   /* ═════════════ Сайдбар ═════════════ */
 
-  const TABS = ['home', 'dashboard', 'history', 'epics', 'queue'];
+  const TABS = ['home', 'dashboard', 'history', 'compare', 'epics', 'queue'];
   const SPRINT_TABS = ['dashboard', 'history'];
 
   function renderSidebar() {
@@ -104,6 +106,11 @@ const UI = (() => {
     const epicsTab = view.tab === 'epics' || view.tab === 'queue';
     $('#epicActions').hidden = !epicsTab;
     $('#sprintActions').hidden = !SPRINT_TABS.includes(view.tab);
+    if (view.tab === 'compare') {
+      nameEl.textContent = 'Сравнение спринтов';
+      metaEl.textContent = '';
+      return;
+    }
     if (view.tab === 'home') {
       nameEl.textContent = 'Обзор';
       const d = Store.parseDate(Store.today());
@@ -639,6 +646,82 @@ const UI = (() => {
     </article>`;
   }
 
+  /* ═════════════ Сравнение спринтов ═════════════ */
+
+  function renderCompare() {
+    const list = Store.sortedSprints();
+    const body = $('#compareBody');
+    $('#compareControls').hidden = list.length < 2;
+    if (list.length < 2) {
+      body.innerHTML = '<div class="empty"><h2>Для сравнения нужны два спринта</h2></div>';
+      return;
+    }
+
+    const primary = list.find(s => s.id === view.comparePrimary) || Store.activeSprint() || list[0];
+    const baseline = list.find(s => s.id === view.compareBaseline && s.id !== primary.id)
+      || list.find(s => s.id !== primary.id && s.status === 'archived')
+      || list.find(s => s.id !== primary.id);
+    view.comparePrimary = primary.id;
+    view.compareBaseline = baseline.id;
+
+    const options = list.map(s =>
+      `<option value="${esc(s.id)}">${esc(s.name)} · ${Store.formatRange(s.startDate, s.endDate)}</option>`
+    ).join('');
+    for (const [selector, sprint] of [['#comparePrimary', primary], ['#compareBaseline', baseline]]) {
+      const select = $(selector);
+      select.innerHTML = options;
+      select.value = sprint.id;
+    }
+
+    const metricMode = mode();
+    document.querySelectorAll('#compareMode button').forEach(button => {
+      const selected = button.dataset.mode === metricMode;
+      button.classList.toggle('is-active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
+
+    const [a, b] = [primary, baseline].map(s => Metrics.inMode(Metrics.sprintMetrics(s), metricMode));
+    const rows = [
+      ['Всего в спринте', a.total, b.total, a.unit],
+      ['Закрыто', a.done, b.done, a.unit],
+      ['Доля закрытого', a.total ? a.pct : null, b.total ? b.pct : null, '%', 'п. п.'],
+      ['Осталось в работе', a.remaining, b.remaining, a.unit],
+      ['Внеплановый объём', a.unplanned, b.unplanned, a.unit],
+      ['Доля внепланового', a.total ? a.unplannedShare : null, b.total ? b.unplannedShare : null, '%', 'п. п.'],
+      ['Снято со спринта', a.dropped, b.dropped, a.unit],
+    ];
+    const format = (value, unit) => value === null ? '—' : `${Metrics.fmt(value)}${unit === '%' ? '%' : ' ' + unit}`;
+    const heading = s => `
+      <th scope="col">
+        <div class="t-name">${esc(s.name)}</div>
+        <div class="t-sub">${Store.formatRange(s.startDate, s.endDate)} · ${s.status === 'archived' ? 'Закрыт' : 'Открыт'}</div>
+      </th>`;
+
+    body.innerHTML = `
+      <div class="table-wrap" role="region" aria-label="Сравнение показателей спринтов" tabindex="0">
+        <table class="data compare-table">
+          <thead><tr><th scope="col">Показатель</th>${heading(primary)}${heading(baseline)}
+            <th scope="col">Разница<div class="t-sub">Основной минус второй</div></th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(([label, left, right, unit, deltaUnit = unit]) => {
+              const delta = left === null || right === null ? null : left - right;
+              return `<tr>
+                <th scope="row">${label}</th>
+                <td class="t-num">${format(left, unit)}</td>
+                <td class="t-num">${format(right, unit)}</td>
+                <td class="t-num">${delta > 0 ? '+' : ''}${format(delta, deltaUnit)}</td>
+              </tr>`;
+            }).join('')}
+            <tr><td></td>${[primary, baseline].map(s =>
+              `<td><button type="button" class="btn btn--ghost btn--sm" data-open-sprint="${esc(s.id)}"
+                aria-label="Открыть спринт ${esc(s.name)}">Открыть</button></td>`
+            ).join('')}<td></td></tr>
+          </tbody>
+        </table>
+      </div>`;
+  }
+
   /* ═════════════ История ═════════════ */
 
   function renderHistory() {
@@ -976,6 +1059,7 @@ const UI = (() => {
     else if (view.tab === 'dashboard') renderDashboard();
     else if (view.tab === 'epics') Roadmap.render();
     else if (view.tab === 'queue') Queue.render();
+    else if (view.tab === 'compare') renderCompare();
     else renderHistory();
   }
 
