@@ -87,6 +87,7 @@ const UI = (() => {
           <span class="sprint-item__bottom">
             <span class="sprint-item__bar"><i style="width:${v.pct}%"></i></span>
             <span>${v.pct}%</span>
+            ${s.status === 'archived' ? `<span class="sprint-item__count" title="Закрыто задач">${m.doneTasks}/${m.totalTasks}</span>` : ''}
           </span>
         </button>`;
     }).join('');
@@ -209,7 +210,7 @@ const UI = (() => {
           <div class="hero__label">${archived ? 'Спринт закрыт с результатом' : 'Закрытие спринта'} — ${mode() === 'points' ? 'по story points' : 'по задачам'}</div>
           <div class="hero__value">
             <span class="hero__pct">${v.pct}<span class="hero__unit">%</span></span>
-            <span class="hero__unit">${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${unit}</span>
+            <span class="hero__unit">${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${unit}${archived && mode() === 'points' ? ` · ${m.doneTasks} из ${m.totalTasks} задач` : ''}</span>
           </div>
         </div>
         <div class="hero__side">
@@ -777,7 +778,8 @@ const UI = (() => {
             <span class="minibar__track"><i class="minibar__fill ${cls}" style="width:${v.pct}%;display:block;height:100%"></i></span>
             <span class="minibar__val">${v.pct}%</span>
           </div>
-          <div class="t-sub">${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${v.unit}</div>
+          ${mode() === 'points' ? `<div class="t-sub">${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${v.unit}</div>` : ''}
+          <div class="t-sub t-sub--done">${m.doneTasks} из ${m.totalTasks} задач</div>
         </td>
         <td class="t-num">
           ${Metrics.fmt(v.planned)}<span class="t-sub"> ${v.unit}</span>
