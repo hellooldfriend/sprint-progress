@@ -4,9 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sprint Progress — спринты и эпики</title>
+  <meta name="theme-color" content="#14151b" />
   <meta name="description" content="Минималистичный локальный трекер спринтов: метрики, burn-down, канбан. Без бэкенда и без Jira." />
+  <link rel="stylesheet" href="css/fonts/golos-text.css" />
   <link rel="stylesheet" href="css/styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%238b5cf6'/><path d='M9 20l5-8 4 5 5-8' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23b8a6ff'/><path d='M9 20l5-8 4 5 5-8' stroke='%23231a38' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
 </head>
 <body>
 
@@ -25,7 +27,7 @@
     </div>
 
     <nav class="nav">
-      <button class="nav__item is-active" data-view="home">
+      <button class="nav__item is-active" data-view="home" aria-current="page">
         <svg class="ico" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8.5a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19.5z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>
         Обзор
       </button>
@@ -141,9 +143,9 @@
         </button>
         <button class="btn btn--primary btn--sm sprint-edit-only" id="btnNewTask">
           <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          Задача
+          Добавить задачу
         </button>
-        <button class="icon-btn" id="btnSummary" title="Сводка по спринту — текстом, чтобы скопировать">
+        <button class="icon-btn" id="btnSummary" aria-label="Сводка по спринту" title="Сводка по спринту — текстом, чтобы скопировать">
           <svg class="ico" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="menu-wrap">

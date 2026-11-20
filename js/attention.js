@@ -14,6 +14,11 @@ const Attention = (() => {
   const epicsWord = n => `${n} ${Metrics.plural(n, 'эпик', 'эпика', 'эпиков')}`;
   const byEnd = (a, b) => (a.plannedEnd || '').localeCompare(b.plannedEnd || '');
 
+  function longRunningTasks(sprint) {
+    return sprint.tasks.filter(task => task.carryCount >= 2 &&
+      !Store.isClosedStatus(task.status) && !task.dropped);
+  }
+
   function sprintItems(s, today, mode, metrics) {
     if (!s || s.status === 'archived' || !(s.tasks || []).length) return [];
     const out = [];
@@ -33,11 +38,12 @@ const Attention = (() => {
       });
     }
 
-    const longRunners = s.tasks.filter(t => (t.carryCount || 0) >= 2 && !Store.isClosedStatus(t.status) && !t.dropped);
+    const longRunners = longRunningTasks(s);
     if (longRunners.length) {
       const n = longRunners.length;
       out.push({
         id: 'long-runners', level: 'warn', section: 'sprint', go: 'dashboard',
+        taskIds: longRunners.map(task => task.id),
         text: `${n} ${Metrics.plural(n, 'задача едет', 'задачи едут', 'задач едут')} 3-й спринт и дольше`,
       });
     }
@@ -97,7 +103,7 @@ const Attention = (() => {
   }
 
   /**
-   * @returns {Array<{id, level:'err'|'warn'|'info', section, go, text, epics?:Array, sync?:boolean}>}
+   * @returns {Array<{id, level:'err'|'warn'|'info', section, go, text, epics?:Array, taskIds?:Array, sync?:boolean}>}
    *          самые срочные сверху
    */
   function collect({ sprint, epics, today, mode }) {
@@ -105,5 +111,5 @@ const Attention = (() => {
       .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
   }
 
-  return { collect, sprintItems, DUE_SOON_DAYS };
+  return { collect, sprintItems, longRunningTasks, DUE_SOON_DAYS };
 })();

@@ -13,6 +13,7 @@ const UI = (() => {
     query: '',             // поиск по задачам
     kind: 'all',           // 'all' | 'planned' | 'unplanned'
     assignee: null,        // null | имя в нижнем регистре | '__none__' — задачи без исполнителя
+    longRunnerSprintId: null,
   };
 
   const $ = sel => document.querySelector(sel);
@@ -182,6 +183,7 @@ const UI = (() => {
 
     if (!s) { wrap.innerHTML = ''; return; }
 
+    const scrollLeft = boardScrollLeft(s.id);
     const m = Metrics.sprintMetrics(s);
     const v = Metrics.inMode(m, mode());
 
@@ -197,12 +199,12 @@ const UI = (() => {
       ${splitHTML(m, v)}
       ${chartHTML(s)}
       ${longRunnerBanner(s, m)}
-      <div class="section-title">Доска задач</div>
+      <h2 class="section-title" id="taskBoardTitle" tabindex="-1">Доска задач</h2>
       ${toolbarHTML(s)}
-      ${peopleStripHTML(m)}
+      ${view.longRunnerSprintId === s.id ? '' : peopleStripHTML(m)}
       <div id="boardMount"></div>
     `;
-    renderBoard();
+    renderBoard(scrollLeft);
   }
 
   /* ── Крупный прогресс ── */
@@ -500,6 +502,14 @@ const UI = (() => {
   function toolbarHTML(s) {
     const total = s.tasks.length;
     const shown = filterTasks(s).length;
+    if (view.longRunnerSprintId === s.id) {
+      return `
+        <div class="board-toolbar">
+          <span class="pill pill--soon">Задачи третий спринт и дольше</span>
+          <button type="button" class="btn btn--ghost btn--sm" data-clear-long-runners>Снять фильтр</button>
+          <span class="hint">Показано ${shown} из ${total}</span>
+        </div>`;
+    }
     return `
     <div class="board-toolbar">
       <label class="search">
@@ -516,6 +526,7 @@ const UI = (() => {
   }
 
   function filterTasks(s) {
+    if (view.longRunnerSprintId === s.id) return Attention.longRunningTasks(s);
     const q = view.query.trim().toLowerCase();
     return s.tasks.filter(t => {
       if (view.kind === 'planned' && t.unplanned) return false;
@@ -568,22 +579,40 @@ const UI = (() => {
   }
 
   /* ── Канбан ── */
-  function renderBoard() {
+  function boardScrollLeft(sprintId) {
+    const board = $('#taskBoard');
+    return board?.dataset.sprintId === sprintId ? board.scrollLeft : 0;
+  }
+
+  function renderBoard(scrollLeft) {
     const s = Store.activeSprint();
     const mount = $('#boardMount');
     if (!s || !mount) return;
 
     const tasks = filterTasks(s);
     const readonly = s.status === 'archived';
+    const columns = Store.STATUSES.map(status => ({
+      ...status, tasks: tasks.filter(task => task.status === status.id),
+    }));
+    const left = scrollLeft ?? boardScrollLeft(s.id);
 
-    mount.innerHTML = `<div class="board">${Store.STATUSES.map(col => {
-      const list = tasks.filter(t => t.status === col.id);
+    mount.innerHTML = `
+      <nav class="board-nav" aria-label="Колонки канбана">
+        ${columns.map(col => `
+          <button type="button" class="board-nav__button" data-board-jump="${col.id}" aria-controls="taskColumn-${col.id}">
+            <span class="dot ${col.dot}" aria-hidden="true"></span>
+            ${col.label}
+            <span class="board-nav__count">${col.tasks.length}</span>
+          </button>`).join('')}
+      </nav>
+      <div class="board" id="taskBoard" data-sprint-id="${esc(s.id)}">${columns.map(col => {
+      const list = col.tasks;
       const pts = Metrics.sum(list, 'points');
       return `
-        <section class="column" data-status="${col.id}">
-          <header class="column__head">
-            <span class="dot ${col.dot}"></span>
-            <span class="column__name">${col.label}</span>
+        <section class="column" data-status="${col.id}" id="taskColumn-${col.id}" aria-labelledby="taskColumnTitle-${col.id}">
+          <header class="column__head" tabindex="-1">
+            <span class="dot ${col.dot}" aria-hidden="true"></span>
+            <h3 class="column__name" id="taskColumnTitle-${col.id}">${col.label}</h3>
             <span class="column__count">${list.length}${pts ? ` · ${Metrics.fmt(pts)} SP` : ''}</span>
           </header>
           <div class="column__body">
@@ -593,11 +622,12 @@ const UI = (() => {
           </div>
         </section>`;
     }).join('')}</div>`;
+    $('#taskBoard').scrollLeft = left;
   }
 
   function emptyColumnText(statusId, s) {
     if (s.tasks.length === 0) return 'Пусто';
-    if (view.query || view.kind !== 'all') return 'Нет совпадений';
+    if (view.longRunnerSprintId === s.id || view.query || view.kind !== 'all' || view.assignee) return 'Нет совпадений';
     const texts = {
       backlog: 'Идеи и запас',
       todo: 'Готово к работе',
@@ -955,16 +985,12 @@ const UI = (() => {
     queue:   '<svg class="ico" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="13.5" y="4.5" width="7" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/><rect x="3.5" y="13.5" width="17" height="6" rx="1.5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>',
   };
 
-  /** Блок раздела на главной. Все блоки одного размера — ни один раздел не «главнее». */
-  function homeCard({ tab, tone, kicker, title, body }) {
+  function homeCard({ tab, tone, title, body }) {
     return `
       <button class="home-card home-card--${tone}" data-go="${tab}">
         <span class="home-card__head">
           <span class="home-card__icon">${HOME_ICONS[tone]}</span>
-          <span>
-            <span class="home-card__kicker">${kicker}</span>
-            <span class="home-card__title" style="display:block">${title}</span>
-          </span>
+          <span class="home-card__title">${title}</span>
           <span class="home-card__go">${ICONS.right}</span>
         </span>
         ${body}
@@ -1050,9 +1076,6 @@ const UI = (() => {
     const items = Attention.collect({
       sprint: Store.activeSprint(), epics: Store.epics(), today: Store.today(), mode: mode(),
     });
-    if (!items.length) {
-      return `<div class="attn attn--ok"><span class="attn__dot attn__dot--ok"></span>Срочного нет — всё по плану</div>`;
-    }
     const epicChips = list => {
       if (!list || !list.length) return '';
       const shown = list.slice(0, ATTN_EPICS_SHOWN).map(e => {
@@ -1062,18 +1085,27 @@ const UI = (() => {
       const more = list.length > ATTN_EPICS_SHOWN ? `<span class="attn__more">и ещё ${list.length - ATTN_EPICS_SHOWN}</span>` : '';
       return `<div class="attn__epics">${shown}${more}</div>`;
     };
-    const actions = it => it.sync
-      ? `<button class="btn btn--ghost btn--sm" data-sync="queue-to-plan" title="Planned-даты возьмут из очереди">Очередь → даты</button>
+    const actions = it => {
+      if (it.taskIds?.length === 1) {
+        return `<button type="button" class="btn btn--ghost btn--sm" data-open-task="${esc(it.taskIds[0])}">Открыть задачу</button>`;
+      }
+      if (it.taskIds?.length > 1) {
+        return '<button type="button" class="btn btn--ghost btn--sm" data-show-long-runners>Показать задачи</button>';
+      }
+      if (it.sync) {
+        return `<button class="btn btn--ghost btn--sm" data-sync="queue-to-plan" title="Planned-даты возьмут из очереди">Очередь → даты</button>
          <button class="btn btn--ghost btn--sm" data-sync="plan-to-queue" title="Очередь переставят по Planned-датам">Даты → очередь</button>`
-      : `<button class="btn btn--ghost btn--sm" data-go="${it.go}">Открыть</button>`;
+      }
+      return `<button class="btn btn--ghost btn--sm" data-go="${it.go}">Открыть</button>`;
+    };
 
     return `
-      <section class="attn">
+      <section class="attn" aria-labelledby="attentionTitle">
         <div class="attn__head">
-          <span class="section-title">Требует внимания</span>
-          <span class="sidebar__count">${items.length}</span>
+          <h2 id="attentionTitle" class="section-title">Требует внимания</h2>
+          ${items.length ? `<span class="sidebar__count">${items.length}</span>` : ''}
         </div>
-        ${items.map(it => `
+        ${items.length ? items.map(it => `
           <div class="attn__item attn__item--${it.level}">
             <span class="attn__dot"></span>
             <div class="attn__main">
@@ -1081,16 +1113,21 @@ const UI = (() => {
               ${epicChips(it.epics)}
             </div>
             <div class="attn__actions">${actions(it)}</div>
-          </div>`).join('')}
+          </div>`).join('') : '<div class="attn__ok"><span class="attn__dot attn__dot--ok"></span>Срочного нет — всё по плану</div>'}
       </section>`;
   }
 
   function renderHome() {
-    $('#homeBody').innerHTML = `${attentionSection()}<div class="home">
-      ${homeCard({ tab: 'dashboard', tone: 'sprint', kicker: 'Спринты', title: 'Текущий спринт', body: sprintCardBody() })}
-      ${homeCard({ tab: 'history', tone: 'history', kicker: 'Спринты', title: 'История', body: historyCardBody() })}
-      ${homeCard({ tab: 'epics', tone: 'epics', kicker: 'Эпики', title: 'Планирование', body: epicsCardBody() })}
-      ${homeCard({ tab: 'queue', tone: 'queue', kicker: 'Эпики', title: 'Очередь', body: queueCardBody() })}
+    $('#homeBody').innerHTML = `<div class="home">
+      <div class="home__primary">
+        ${homeCard({ tab: 'dashboard', tone: 'sprint', title: 'Текущий спринт', body: sprintCardBody() })}
+        ${attentionSection()}
+      </div>
+      <div class="home__sections">
+        ${homeCard({ tab: 'history', tone: 'history', title: 'История', body: historyCardBody() })}
+        ${homeCard({ tab: 'epics', tone: 'epics', title: 'Планирование', body: epicsCardBody() })}
+        ${homeCard({ tab: 'queue', tone: 'queue', title: 'Очередь', body: queueCardBody() })}
+      </div>
     </div>`;
   }
 
@@ -1104,11 +1141,18 @@ const UI = (() => {
 
   function setTab(tab) {
     if (!TABS.includes(tab)) tab = 'home';
+    if (tab !== 'dashboard' || view.longRunnerSprintId !== Store.activeSprint()?.id) {
+      view.longRunnerSprintId = null;
+    }
     view.tab = tab;
     const hash = tab === 'home' ? '' : `#${tab}`;
     if (location.hash !== hash) history.pushState(null, '', hash || location.pathname + location.search);
-    document.querySelectorAll('.nav__item').forEach(b =>
-      b.classList.toggle('is-active', b.dataset.view === tab));
+    document.querySelectorAll('.nav__item').forEach(b => {
+      const selected = b.dataset.view === tab;
+      b.classList.toggle('is-active', selected);
+      if (selected) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
     TABS.forEach(t => { $(`#view-${t}`).hidden = t !== tab; });
     window.scrollTo(0, 0);
     render();

@@ -72,9 +72,9 @@ const Charts = (() => {
       const val = (yMax / TICKS) * k;
       const y = yOf(val);
       grid += `<line x1="${PAD.left}" y1="${y.toFixed(1)}" x2="${W - PAD.right}" y2="${y.toFixed(1)}"
-                 stroke="rgba(255,255,255,.06)" stroke-width="1" />`;
+                 stroke="var(--border)" stroke-width="1" />`;
       grid += `<text x="${PAD.left - 10}" y="${(y + 3.5).toFixed(1)}" text-anchor="end"
-                 fill="#6b6b76" font-size="10.5" font-family="ui-monospace, monospace">${Metrics.fmt(val)}</text>`;
+                 fill="var(--faint)" font-size="10.5" font-family="ui-monospace, monospace">${Metrics.fmt(val)}</text>`;
     }
 
     /* ── Подписи оси X (дни спринта) ── */
@@ -84,7 +84,7 @@ const Charts = (() => {
       if (i % step !== 0 && i !== n - 1) return;
       const date = Store.parseDate(d);
       xLabels += `<text x="${xOf(i).toFixed(1)}" y="${H - 12}" text-anchor="middle"
-                    fill="#6b6b76" font-size="10.5">${date.getDate()}.${String(date.getMonth() + 1).padStart(2, '0')}</text>`;
+                    fill="var(--faint)" font-size="10.5">${date.getDate()}.${String(date.getMonth() + 1).padStart(2, '0')}</text>`;
     });
 
     /* ── Вертикаль «сегодня» ── */
@@ -93,13 +93,13 @@ const Charts = (() => {
       const x = xOf(todayIdx).toFixed(1);
       todayLine = `
         <line x1="${x}" y1="${PAD.top - 6}" x2="${x}" y2="${PAD.top + PLOT_H}"
-              stroke="rgba(255,255,255,.22)" stroke-width="1" stroke-dasharray="3 4" />
-        <text x="${x}" y="${PAD.top - 9}" text-anchor="middle" fill="#6b6b76" font-size="10">сегодня</text>`;
+              stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="3 4" />
+        <text x="${x}" y="${PAD.top - 9}" text-anchor="middle" fill="var(--faint)" font-size="10">сегодня</text>`;
     }
 
     /* ── Серии ── */
     const mainVals = isDown ? remaining : completed;
-    const mainColor = isDown ? '#8b5cf6' : '#22c55e';
+    const mainColor = isDown ? 'var(--accent)' : 'var(--green)';
     const gradId = id ? `${id}-fill` : isDown ? 'gradDown' : 'gradUp';
 
     let areas = '', lines = '', dots = '';
@@ -117,7 +117,7 @@ const Charts = (() => {
       pts.forEach(p => {
         const label = isDown ? 'Остаток' : 'Сделано';
         dots += `<circle class="pt" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.2"
-                   fill="#0a0a0a" stroke="${mainColor}" stroke-width="2">
+                   fill="var(--surface)" stroke="${mainColor}" stroke-width="2">
                    <title>${esc(Store.formatDate(days[p.i]))} — ${label}: ${Metrics.fmt(p.v)} ${esc(unit)}</title>
                  </circle>`;
       });
@@ -125,7 +125,7 @@ const Charts = (() => {
 
     // Вспомогательная линия: идеал (burn-down) либо scope (burn-up)
     const helperVals = isDown ? ideal : scope;
-    const helperColor = isDown ? '#6b6b76' : '#f59e0b';
+    const helperColor = isDown ? 'var(--faint)' : 'var(--amber)';
     const helperPts = segments(helperVals, xOf, yOf);
     let helper = '';
     helperPts.forEach(pts => {
@@ -137,7 +137,7 @@ const Charts = (() => {
       const last = helperPts.length ? helperPts[helperPts.length - 1].slice(-1)[0] : null;
       if (last) {
         dots += `<circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="3.2"
-                   fill="#0a0a0a" stroke="${helperColor}" stroke-width="2">
+                   fill="var(--surface)" stroke="${helperColor}" stroke-width="2">
                    <title>Общий объём: ${Metrics.fmt(last.v)} ${esc(unit)}</title></circle>`;
       }
     }
@@ -158,7 +158,7 @@ const Charts = (() => {
   ${dots}
   ${xLabels}
   <line x1="${PAD.left}" y1="${PAD.top + PLOT_H}" x2="${W - PAD.right}" y2="${PAD.top + PLOT_H}"
-        stroke="rgba(255,255,255,.12)" stroke-width="1" />
+        stroke="var(--border-strong)" stroke-width="1" />
 </svg>`;
   }
 
@@ -187,9 +187,9 @@ const Charts = (() => {
       const val = (yMax / TICKS) * k;
       const y = yOf(val);
       grid += `<line x1="${PAD.left}" y1="${y.toFixed(1)}" x2="${W - PAD.right}" y2="${y.toFixed(1)}"
-                 stroke="rgba(255,255,255,.06)" stroke-width="1" />`;
+                 stroke="var(--border)" stroke-width="1" />`;
       grid += `<text x="${PAD.left - 10}" y="${(y + 3.5).toFixed(1)}" text-anchor="end"
-                 fill="#6b6b76" font-size="10.5" font-family="ui-monospace, monospace">${Metrics.fmt(val)}</text>`;
+                 fill="var(--faint)" font-size="10.5" font-family="ui-monospace, monospace">${Metrics.fmt(val)}</text>`;
     }
 
     let bars = '', labels = '';
@@ -204,13 +204,13 @@ const Charts = (() => {
       bars += `<g opacity="${opacity}">
           <title>${esc(row.title)}</title>
           <rect x="${x.toFixed(1)}" y="${scopeY.toFixed(1)}" width="${barW.toFixed(1)}"
-                height="${Math.max(0, base - scopeY).toFixed(1)}" rx="4" fill="rgba(255,255,255,.07)" />
+                height="${Math.max(0, base - scopeY).toFixed(1)}" rx="4" fill="var(--surface-3)" />
           <rect x="${x.toFixed(1)}" y="${doneY.toFixed(1)}" width="${barW.toFixed(1)}"
-                height="${Math.max(0, base - doneY).toFixed(1)}" rx="4" fill="#22c55e" />
+                height="${Math.max(0, base - doneY).toFixed(1)}" rx="4" fill="var(--green)" />
         </g>`;
 
       labels += `<text x="${centerOf(i).toFixed(1)}" y="${H2 - 12}" text-anchor="middle"
-                   fill="#6b6b76" font-size="10.5">${esc(row.label)}</text>`;
+                   fill="var(--faint)" font-size="10.5">${esc(row.label)}</text>`;
     });
 
     // Средняя velocity — по закрытым спринтам: незакрытый занизил бы её
@@ -220,9 +220,9 @@ const Charts = (() => {
     const avgY = yOf(avg);
     const avgLine = `
       <line x1="${PAD.left}" y1="${avgY.toFixed(1)}" x2="${W - PAD.right}" y2="${avgY.toFixed(1)}"
-            stroke="#8b5cf6" stroke-width="1.75" stroke-dasharray="5 5" opacity=".9" />
+            stroke="var(--accent)" stroke-width="1.75" stroke-dasharray="5 5" opacity=".9" />
       <text x="${W - PAD.right}" y="${(avgY - 7).toFixed(1)}" text-anchor="end"
-            fill="#c4b5fd" font-size="10.5">среднее ${Metrics.fmt(avg)} ${esc(unit)}</text>`;
+            fill="var(--accent)" font-size="10.5">среднее ${Metrics.fmt(avg)} ${esc(unit)}</text>`;
 
     return `
 <svg viewBox="0 0 ${W} ${H2}" role="img" aria-label="Velocity по спринтам">
@@ -231,7 +231,7 @@ const Charts = (() => {
   ${avgLine}
   ${labels}
   <line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${W - PAD.right}" y2="${PAD.top + plotH}"
-        stroke="rgba(255,255,255,.12)" stroke-width="1" />
+        stroke="var(--border-strong)" stroke-width="1" />
 </svg>`;
   }
 

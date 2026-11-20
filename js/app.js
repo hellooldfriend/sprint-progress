@@ -502,6 +502,27 @@
 
   // Обзор: блок раздела ведёт в раздел
   $('#homeBody').addEventListener('click', e => {
+    const taskBtn = e.target.closest('[data-open-task]');
+    const showTasks = e.target.closest('[data-show-long-runners]');
+    if (taskBtn || showTasks) {
+      const sprint = Store.activeSprint();
+      if (!sprint || sprint.status === 'archived') return;
+      const tasks = Attention.longRunningTasks(sprint);
+      if (taskBtn) {
+        const task = tasks.find(t => t.id === taskBtn.dataset.openTask);
+        if (task) openTaskModal(task);
+        else UI.render();
+        return;
+      }
+      if (!tasks.length) { UI.render(); return; }
+      UI.view.longRunnerSprintId = sprint.id;
+      UI.setTab('dashboard');
+      const title = $('#taskBoardTitle');
+      const headerBottom = $('.topbar').getBoundingClientRect().bottom;
+      window.scrollBy({ top: title.getBoundingClientRect().top - headerBottom - 12 });
+      title.focus({ preventScroll: true });
+      return;
+    }
     const epicBtn = e.target.closest('[data-open-epic]');
     if (epicBtn) return openEpicModal(Store.epicById(epicBtn.dataset.openEpic));
     const sync = e.target.closest('[data-sync]');
@@ -635,6 +656,23 @@
 
   // График, фильтры и поиск живут внутри перерисовываемого блока → делегирование
   $('#dashboardBody').addEventListener('click', e => {
+    const statusBtn = e.target.closest('[data-board-jump]');
+    if (statusBtn) {
+      const board = $('#taskBoard');
+      const column = document.getElementById(statusBtn.getAttribute('aria-controls'));
+      if (!board || !column) return;
+      const left = column.getBoundingClientRect().left - board.getBoundingClientRect().left;
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      board.scrollBy({ left, behavior: reduceMotion ? 'instant' : 'smooth' });
+      column.querySelector('.column__head').focus({ preventScroll: true });
+      return;
+    }
+    if (e.target.closest('[data-clear-long-runners]')) {
+      UI.view.longRunnerSprintId = null;
+      UI.renderDashboard();
+      $('#taskBoardTitle').focus();
+      return;
+    }
     const chartBtn = e.target.closest('[data-chart]');
     if (chartBtn) {
       Store.setSetting('chartMode', chartBtn.dataset.chart);

@@ -1,7 +1,7 @@
 /* «Требует внимания»: какие проблемы попадают в список и в каком порядке */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadApp } = require('./helpers/load');
+const { loadApp, makeSprint } = require('./helpers/load');
 
 const TODAY = '2026-10-14';   // среда
 const ids = items => items.map(i => i.id);
@@ -86,6 +86,29 @@ test('спринт: отставание от графика и задачи-д�
 
   const items = app.Attention.collect({ sprint: Store.sprintById(sprint.id), epics: [], today, mode: 'points' });
   assert.deepEqual(ids(items), ['sprint-behind', 'long-runners']);
+  assert.deepEqual(items[1].taskIds, [Store.sprintById(sprint.id).tasks[1].id]);
+});
+
+test('из предупреждения открываются только незакрытые долгожители, оставшиеся в спринте', () => {
+  const app = loadApp();
+  const sprint = makeSprint(app, {
+    tasks: [
+      { title: 'В работе', status: 'progress' },
+      { title: 'На паузе', status: 'hold' },
+      { title: 'Закрыта', status: 'done' },
+      { title: 'Отклонена', status: 'rejected' },
+      { title: 'Снята', dropped: true },
+      { title: 'Недавняя' },
+    ],
+  });
+  sprint.tasks.forEach(task => { task.carryCount = task.title === 'Недавняя' ? 1 : 2; });
+  const expected = sprint.tasks.filter(task => ['В работе', 'На паузе'].includes(task.title)).map(task => task.id);
+  const warning = collect(app, { sprint, today: app.Store.today() }).find(item => item.id === 'long-runners');
+  assert.deepEqual(warning.taskIds, expected);
+  assert.deepEqual(app.Attention.longRunningTasks(sprint).map(task => task.id), expected);
+
+  app.Store.setTaskStatus(sprint.id, expected[0], 'done');
+  assert.deepEqual(app.Attention.longRunningTasks(sprint).map(task => task.id), [expected[1]]);
 });
 
 test('спринт с вышедшим сроком просят закрыть; закрытый и пустой — молчат', () => {
