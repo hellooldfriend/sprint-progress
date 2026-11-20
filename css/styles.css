@@ -679,10 +679,40 @@ table.data tbody tr:hover { background: var(--surface-2); }
 table.compare-table { min-width: 520px; }
 .compare-table thead th { white-space: normal; }
 .compare-table thead .t-name { color: var(--text); }
+.compare-table thead th:nth-child(2) .t-name { color: var(--accent); }
+.compare-table thead th:nth-child(3) .t-name { color: var(--blue); }
 .compare-table thead .t-name,
 .compare-table thead .t-sub { text-transform: none; letter-spacing: normal; overflow-wrap: anywhere; }
 .compare-table tbody th { color: var(--text); font-size: 13px; text-transform: none; letter-spacing: normal; }
 .compare-table td { white-space: nowrap; }
+.compare-progress {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+  margin-bottom: 16px;
+}
+.compare-progress__card {
+  --progress-color: var(--accent);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--progress-color);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 16px 18px;
+}
+.compare-progress__card:nth-child(2) { --progress-color: var(--blue); }
+.compare-progress__name { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+.compare-progress__value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; color: var(--muted); font-size: 13px; }
+.compare-progress__value strong { color: var(--progress-color); font: 600 clamp(28px, 5vw, 44px)/1.3 var(--mono); }
+.compare-progress progress { display: block; width: 100%; height: 6px; margin-top: 8px; accent-color: var(--progress-color); }
+.compare-charts { margin-top: 16px; }
+.compare-charts .card__head { flex-wrap: wrap; }
+.compare-charts__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.compare-charts__grid .t-name { overflow-wrap: anywhere; }
+.compare-charts__grid .chart-wrap svg { min-width: 360px; }
+@media (max-width: 1020px) {
+  .compare-charts__grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .compare-progress { grid-template-columns: minmax(0, 1fr); }
+}
 
 .minibar { display: flex; align-items: center; gap: 9px; min-width: 132px; }
 .minibar__track { flex: 1; height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }

@@ -14,10 +14,10 @@ const Attention = (() => {
   const epicsWord = n => `${n} ${Metrics.plural(n, 'эпик', 'эпика', 'эпиков')}`;
   const byEnd = (a, b) => (a.plannedEnd || '').localeCompare(b.plannedEnd || '');
 
-  function sprintItems(s, today, mode) {
+  function sprintItems(s, today, mode, metrics) {
     if (!s || s.status === 'archived' || !(s.tasks || []).length) return [];
     const out = [];
-    const m = Metrics.sprintMetrics(s);
+    const m = metrics || Metrics.sprintMetrics(s);
     const v = Metrics.inMode(m, mode);
 
     if (today > s.endDate) {
@@ -25,7 +25,7 @@ const Attention = (() => {
         id: 'sprint-expired', level: 'warn', section: 'sprint', go: 'dashboard',
         text: `Срок спринта «${s.name}» вышел ${Store.formatDate(s.endDate)} — пора закрыть и перенести хвосты`,
       });
-    } else if (today >= s.startDate && m.daysLeft > 0 && v.pct - m.timePct <= BEHIND_PP) {
+    } else if (today >= s.startDate && m.daysLeft > 0 && v.total > 0 && v.pct - m.timePct <= BEHIND_PP) {
       out.push({
         id: 'sprint-behind', level: 'err', section: 'sprint', go: 'dashboard',
         text: `Спринт отстаёт от графика на ${Math.abs(Math.round(v.pct - m.timePct))} п.п.: ` +
@@ -105,5 +105,5 @@ const Attention = (() => {
       .sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level]);
   }
 
-  return { collect, DUE_SOON_DAYS };
+  return { collect, sprintItems, DUE_SOON_DAYS };
 })();

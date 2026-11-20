@@ -520,7 +520,14 @@
     UI.setTab('dashboard');
   }
   $('#historyBody').addEventListener('click', openSprintFromReport);
-  $('#compareBody').addEventListener('click', openSprintFromReport);
+  $('#compareBody').addEventListener('click', e => {
+    const chartButton = e.target.closest('[data-chart]');
+    if (!chartButton) return openSprintFromReport(e);
+    const chartMode = chartButton.dataset.chart;
+    Store.setSetting('chartMode', chartMode);
+    UI.render();
+    $(`#compareBody [data-chart="${chartMode}"]`).focus();
+  });
 
   $('#compareControls').addEventListener('change', e => {
     const field = e.target.id;

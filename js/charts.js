@@ -45,24 +45,21 @@ const Charts = (() => {
 
   const toPath = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
 
+  function burnPeak({ scope, ideal, remaining, completed }) {
+    return Math.max(0, ...scope, ...ideal, ...remaining, ...completed);
+  }
+
   /**
    * Главный рендер.
    * @param {object} series — результат Metrics.burnSeries
    * @param {'burndown'|'burnup'} mode
    * @param {string} unit — подпись единиц ('SP' | 'задач')
    */
-  function burnChart(series, mode, unit) {
+  function burnChart(series, mode, unit, { peak = burnPeak(series), id } = {}) {
     const { days, scope, completed, remaining, ideal, todayIdx } = series;
     const n = days.length;
     const isDown = mode === 'burndown';
 
-    const peak = Math.max(
-      0,
-      ...scope.filter(v => v !== null),
-      ...ideal.filter(v => v !== null),
-      ...remaining.filter(v => v !== null),
-      ...completed.filter(v => v !== null)
-    );
     const yMax = niceMax(peak);
 
     const xOf = i => PAD.left + (n <= 1 ? PLOT_W / 2 : (i / (n - 1)) * PLOT_W);
@@ -103,7 +100,7 @@ const Charts = (() => {
     /* ── Серии ── */
     const mainVals = isDown ? remaining : completed;
     const mainColor = isDown ? '#8b5cf6' : '#22c55e';
-    const gradId = isDown ? 'gradDown' : 'gradUp';
+    const gradId = id ? `${id}-fill` : isDown ? 'gradDown' : 'gradUp';
 
     let areas = '', lines = '', dots = '';
 
@@ -148,13 +145,9 @@ const Charts = (() => {
     return `
 <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${isDown ? 'Burn-down' : 'Burn-up'} график спринта">
   <defs>
-    <linearGradient id="gradDown" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#8b5cf6" stop-opacity=".28" />
-      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
-    </linearGradient>
-    <linearGradient id="gradUp" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#22c55e" stop-opacity=".26" />
-      <stop offset="100%" stop-color="#22c55e" stop-opacity="0" />
+    <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${mainColor}" stop-opacity="${isDown ? '.28' : '.26'}" />
+      <stop offset="100%" stop-color="${mainColor}" stop-opacity="0" />
     </linearGradient>
   </defs>
   ${grid}
@@ -242,5 +235,5 @@ const Charts = (() => {
 </svg>`;
   }
 
-  return { burnChart, velocityChart };
+  return { burnChart, burnPeak, velocityChart };
 })();

@@ -457,17 +457,19 @@ const UI = (() => {
   }
 
   /* ── График ── */
+  function burnLegend(isDown) {
+    return isDown
+      ? `<span><i style="background:var(--accent)"></i>Остаток работы</span>
+         <span><i class="dashed"></i>Идеальное сгорание</span>`
+      : `<span><i style="background:var(--green)"></i>Сделано (накопленно)</span>
+         <span><i style="background:var(--amber)"></i>Общий объём — растёт от unplanned, падает от снятых</span>`;
+  }
+
   function chartHTML(s) {
     const chartMode = Store.get().settings.chartMode;
     const series = Metrics.burnSeries(s, mode());
     const isDown = chartMode === 'burndown';
     const hasScope = series.scope.some(x => x > 0);
-
-    const legend = isDown
-      ? `<span><i style="background:var(--accent)"></i>Остаток работы</span>
-         <span><i class="dashed"></i>Идеальное сгорание</span>`
-      : `<span><i style="background:var(--green)"></i>Сделано (накопленно)</span>
-         <span><i style="background:var(--amber)"></i>Общий объём — растёт от unplanned, падает от снятых</span>`;
 
     return `
     <section class="card chart-card">
@@ -485,7 +487,7 @@ const UI = (() => {
       </div>
       ${hasScope
         ? `<div class="chart-wrap">${Charts.burnChart(series, chartMode, unitLabel())}</div>
-           <div class="chart-legend">${legend}</div>`
+           <div class="chart-legend">${burnLegend(isDown)}</div>`
         : `<div class="column__empty" style="min-height:160px">
              ${s.tasks.length === 0
                ? 'Добавьте задачи — график построится сам по датам создания и закрытия'
@@ -680,12 +682,24 @@ const UI = (() => {
       button.setAttribute('aria-pressed', String(selected));
     });
 
-    const [a, b] = [primary, baseline].map(s => Metrics.inMode(Metrics.sprintMetrics(s), metricMode));
+    const today = Store.today();
+    const pair = [primary, baseline].map(sprint => {
+      const metrics = Metrics.sprintMetrics(sprint);
+      return { sprint, metrics, values: Metrics.inMode(metrics, metricMode),
+        series: Metrics.burnSeries(sprint, metricMode) };
+    });
+    const [a, b] = pair.map(({ values }) => values);
+    const [paceA, paceB] = pair.map(({ metrics, values }) => values.total && metrics.elapsedDays ? values.pace : null);
+    const [needA, needB] = pair.map(({ sprint, metrics, values }) =>
+      sprint.status !== 'archived' && values.total && metrics.daysLeft && today >= sprint.startDate ? values.need : null);
+    const dailyUnit = metricMode === 'points' ? 'SP/день' : 'задач/день';
     const rows = [
       ['Всего в спринте', a.total, b.total, a.unit],
       ['Закрыто', a.done, b.done, a.unit],
       ['Доля закрытого', a.total ? a.pct : null, b.total ? b.pct : null, '%', 'п. п.'],
       ['Осталось в работе', a.remaining, b.remaining, a.unit],
+      ['Фактический темп', paceA, paceB, dailyUnit],
+      ['Темп до конца спринта', needA, needB, dailyUnit],
       ['Внеплановый объём', a.unplanned, b.unplanned, a.unit],
       ['Доля внепланового', a.total ? a.unplannedShare : null, b.total ? b.unplannedShare : null, '%', 'п. п.'],
       ['Снято со спринта', a.dropped, b.dropped, a.unit],
@@ -697,7 +711,28 @@ const UI = (() => {
         <div class="t-sub">${Store.formatRange(s.startDate, s.endDate)} · ${s.status === 'archived' ? 'Закрыт' : 'Открыт'}</div>
       </th>`;
 
+    const signals = pair.flatMap(({ sprint, metrics }) =>
+      Attention.sprintItems(sprint, today, metricMode, metrics).map(item => ({ sprint, item })));
     body.innerHTML = `
+      <div class="compare-progress">
+        ${pair.map(({ sprint, values: v }) => `
+          <article class="compare-progress__card">
+            <h2 class="compare-progress__name">${esc(sprint.name)}</h2>
+            <div class="compare-progress__value">
+              <strong>${v.total ? `${v.pct}%` : '—'}</strong>
+              <span>${Metrics.fmt(v.done)} из ${Metrics.fmt(v.total)} ${v.unit} закрыто</span>
+            </div>
+            ${v.total ? `<progress aria-label="Выполнение спринта ${esc(sprint.name)}" value="${v.pct}" max="100"></progress>` : ''}
+          </article>`).join('')}
+      </div>
+      ${signals.length ? `<section class="attn">
+        <div class="attn__head"><h2 class="section-title">Требует внимания</h2></div>
+        ${signals.map(({ sprint, item }) => `
+          <div class="attn__item attn__item--${item.level}">
+            <span class="attn__dot"></span>
+            <div class="attn__text"><span class="attn__section">${esc(sprint.name)}</span>${esc(item.text)}</div>
+          </div>`).join('')}
+      </section>` : ''}
       <div class="table-wrap" role="region" aria-label="Сравнение показателей спринтов" tabindex="0">
         <table class="data compare-table">
           <thead><tr><th scope="col">Показатель</th>${heading(primary)}${heading(baseline)}
@@ -719,7 +754,34 @@ const UI = (() => {
             ).join('')}<td></td></tr>
           </tbody>
         </table>
-      </div>`;
+      </div>
+      ${compareCharts(pair)}`;
+  }
+
+  function compareCharts(pair) {
+    const chartMode = Store.get().settings.chartMode;
+    const peak = Math.max(...pair.map(({ series }) => Charts.burnPeak(series)));
+    return `<section class="card compare-charts">
+      <div class="card__head">
+        <h2 class="card__title">Динамика работы</h2>
+        <div class="segmented" role="group" aria-label="Вид графика">
+          ${[['burndown', 'Burn-down'], ['burnup', 'Burn-up']].map(([id, label]) =>
+            `<button type="button" data-chart="${id}" class="${chartMode === id ? 'is-active' : ''}"
+              aria-pressed="${chartMode === id}">${label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="compare-charts__grid">
+        ${pair.map(({ sprint, series }, index) => `
+          <div>
+            <h3 class="t-name">${esc(sprint.name)}</h3>
+            ${Charts.burnPeak(series) > 0
+              ? `<div class="chart-wrap">${Charts.burnChart(series, chartMode, unitLabel(),
+                { peak, id: `compare-burn-${index}` })}</div>`
+              : '<p class="hint">Нет объёма в выбранной единице измерения.</p>'}
+          </div>`).join('')}
+      </div>
+      ${peak > 0 ? `<div class="chart-legend">${burnLegend(chartMode === 'burndown')}</div>` : ''}
+    </section>`;
   }
 
   /* ═════════════ История ═════════════ */
